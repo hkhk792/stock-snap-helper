@@ -1,18 +1,36 @@
 import React, { useState } from "react";
-import { Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, RefreshCw, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { type FundInfo, type Holding, calculateEstimatedNav } from "@/lib/fund-data";
+import { type Holding, calculateEstimatedNav } from "@/lib/fund-data";
+import { type FundSearchResult, type FundEstimate } from "@/lib/fund-api";
 
 interface HoldingsEditorProps {
-  fund: FundInfo;
+  fund: FundSearchResult;
+  estimate: FundEstimate | null;
   holdings: Holding[];
   onUpdateHoldings: (holdings: Holding[]) => void;
   onBack: () => void;
+  onRefresh: () => void;
 }
 
-const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, holdings, onUpdateHoldings, onBack }) => {
+const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, estimate, holdings, onUpdateHoldings, onBack, onRefresh }) => {
   const [localHoldings, setLocalHoldings] = useState<Holding[]>(holdings);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Use real estimate data if available
+  const useRealEstimate = !!estimate;
+  const { estimatedNav: calcNav, totalChange: calcChange } = calculateEstimatedNav(
+    estimate?.lastNav || 0,
+    localHoldings
+  );
+
+  const displayNav = useRealEstimate ? estimate!.estimatedNav : calcNav;
+  const displayChange = useRealEstimate ? estimate!.estimatedChange : calcChange;
+  const lastNav = estimate?.lastNav || 0;
+
+  const totalWeight = localHoldings.reduce((sum, h) => sum + h.weight, 0);
+  const isGain = displayChange >= 0;
 
   const addHolding = () => {
     const newHolding: Holding = {
@@ -41,9 +59,11 @@ const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, holdings, onUpdat
     onUpdateHoldings(updated);
   };
 
-  const { estimatedNav, totalChange } = calculateEstimatedNav(fund.lastNav, localHoldings);
-  const totalWeight = localHoldings.reduce((sum, h) => sum + h.weight, 0);
-  const isGain = totalChange >= 0;
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -52,31 +72,43 @@ const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, holdings, onUpdat
         <button onClick={onBack} className="p-2 rounded-md hover:bg-muted transition-colors">
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </button>
-        <div>
+        <div className="flex-1">
           <h2 className="text-lg font-semibold text-foreground">{fund.name}</h2>
           <p className="text-xs text-muted-foreground">{fund.code} · {fund.type}</p>
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+        </button>
       </div>
 
       {/* Summary Card */}
       <div className="bg-card rounded-lg border border-border p-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground mb-1">实时估算净值</p>
+            <p className="text-xs text-muted-foreground mb-1">
+              {useRealEstimate ? "实时估算净值" : "手动估算净值"}
+            </p>
             <p className={`text-3xl font-bold tabular-nums ${isGain ? "text-gain" : "text-loss"}`}>
-              {estimatedNav.toFixed(4)}
+              {displayNav.toFixed(4)}
             </p>
           </div>
           <div className="text-right">
             <p className="text-xs text-muted-foreground mb-1">估算涨跌</p>
             <p className={`text-2xl font-bold tabular-nums ${isGain ? "text-gain" : "text-loss"}`}>
-              {isGain ? "+" : ""}{totalChange.toFixed(2)}%
+              {isGain ? "+" : ""}{displayChange.toFixed(2)}%
             </p>
           </div>
         </div>
-        <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
-          <span>上一净值: {fund.lastNav.toFixed(4)}</span>
+        <div className="mt-3 pt-3 border-t border-border flex flex-wrap justify-between text-xs text-muted-foreground gap-2">
+          {lastNav > 0 && <span>上一净值: {lastNav.toFixed(4)}</span>}
           <span>持仓占比合计: {totalWeight.toFixed(1)}%</span>
+          {estimate?.estimatedTime && (
+            <span>更新时间: {estimate.estimatedTime}</span>
+          )}
         </div>
       </div>
 
@@ -92,7 +124,7 @@ const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, holdings, onUpdat
 
         {localHoldings.length === 0 ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            暂无持仓数据，请点击"添加持仓"或使用截图识别
+            暂无持仓数据，点击刷新按钮获取实时持仓，或手动添加
           </div>
         ) : (
           <div className="divide-y divide-border">

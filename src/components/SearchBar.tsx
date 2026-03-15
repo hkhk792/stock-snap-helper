@@ -1,27 +1,46 @@
-import React, { useState, useRef } from "react";
-import { Search, Camera } from "lucide-react";
+import React, { useState, useRef, useCallback } from "react";
+import { Search, Camera, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { searchFunds, type FundInfo } from "@/lib/fund-data";
+import { searchFundsApi, type FundSearchResult } from "@/lib/fund-api";
 
 interface SearchBarProps {
-  onSelectFund: (fund: FundInfo) => void;
+  onSelectFund: (fund: FundSearchResult) => void;
   onOpenScreenshot: () => void;
 }
 
 const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot }) => {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<FundInfo[]>([]);
+  const [results, setResults] = useState<FundSearchResult[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const handleSearch = (value: string) => {
+  const handleSearch = useCallback((value: string) => {
     setQuery(value);
-    const found = searchFunds(value);
-    setResults(found);
-    setShowResults(value.length > 0);
-  };
+    if (!value.trim()) {
+      setResults([]);
+      setShowResults(false);
+      return;
+    }
 
-  const handleSelect = (fund: FundInfo) => {
+    setShowResults(true);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const found = await searchFundsApi(value);
+        setResults(found);
+      } catch (e) {
+        console.error('Search failed:', e);
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+  }, []);
+
+  const handleSelect = (fund: FundSearchResult) => {
     onSelectFund(fund);
     setQuery("");
     setShowResults(false);
@@ -31,7 +50,11 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot })
     <div className="relative w-full">
       <div className="flex items-center gap-2 rounded-lg bg-card border border-border p-1">
         <div className="flex items-center flex-1 gap-2 px-3">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          {loading ? (
+            <Loader2 className="h-4 w-4 text-muted-foreground shrink-0 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          )}
           <Input
             ref={inputRef}
             value={query}
@@ -69,7 +92,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot })
         </div>
       )}
 
-      {showResults && query && results.length === 0 && (
+      {showResults && query && !loading && results.length === 0 && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-card rounded-lg border border-border shadow-lg z-50 p-4 text-center text-sm text-muted-foreground">
           未找到相关基金
         </div>
