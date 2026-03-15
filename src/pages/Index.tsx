@@ -1,26 +1,114 @@
-import React, { useState } from "react";
-import { BarChart3, TrendingUp } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { BarChart3, TrendingUp, RefreshCw, Loader2 } from "lucide-react";
 import SearchBar from "@/components/SearchBar";
 import FundCard from "@/components/FundCard";
 import HoldingsEditor from "@/components/HoldingsEditor";
 import ScreenshotModal from "@/components/ScreenshotModal";
-import { type FundInfo, type Holding } from "@/lib/fund-data";
+import { type Holding } from "@/lib/fund-data";
+import { type FundSearchResult, type FundEstimate, getFundEstimate, getFundHoldings, getStockQuotes } from "@/lib/fund-api";
+import { toast } from "sonner";
 
 interface TrackedFund {
-  fund: FundInfo;
+  fund: FundSearchResult;
+  estimate: FundEstimate | null;
   holdings: Holding[];
+  loading?: boolean;
 }
 
 const Index = () => {
   const [trackedFunds, setTrackedFunds] = useState<TrackedFund[]>([]);
   const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
   const [screenshotOpen, setScreenshotOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleSelectFund = (fund: FundInfo) => {
-    if (!trackedFunds.find((t) => t.fund.code === fund.code)) {
-      setTrackedFunds((prev) => [...prev, { fund, holdings: [] }]);
+  const fetchFundData = useCallback(async (code: string) => {
+    try {
+      const [estimate, holdingsData] = await Promise.all([
+        getFundEstimate(code),
+        getFundHoldings(code),
+      ]);
+
+      let holdings: Holding[] = [];
+      if (holdingsData?.holdings?.length > 0) {
+        // Get real-time stock quotes
+        let quotes: Record<string, number> = {};
+        if (holdingsData.stockCodes?.length > 0) {
+          try {
+            const stockQuotes = await getStockQuotes(holdingsData.stockCodes);
+            stockQuotes.forEach((q) => {
+              quotes[q.name] = q.changePercent;
+              quotes[q.code] = q.changePercent;
+            });
+          } catch (e) {
+            console.error('Failed to fetch stock quotes:', e);
+          }
+        }
+
+        holdings = holdingsData.holdings.map((h, idx) => ({
+          id: crypto.randomUUID(),
+          name: h.name,
+          code: h.code || '',
+          weight: h.weight,
+          change: quotes[h.name] ?? quotes[h.code || ''] ?? 0,
+        }));
+      }
+
+      return { estimate, holdings };
+    } catch (e) {
+      console.error(`Failed to fetch fund ${code}:`, e);
+      return { estimate: null, holdings: [] };
     }
+  }, []);
+
+  const handleSelectFund = async (fund: FundSearchResult) => {
+    if (trackedFunds.find((t) => t.fund.code === fund.code)) {
+      setSelectedFundCode(fund.code);
+      return;
+    }
+
+    setTrackedFunds((prev) => [...prev, { fund, estimate: null, holdings: [], loading: true }]);
     setSelectedFundCode(fund.code);
+
+    const data = await fetchFundData(fund.code);
+
+    setTrackedFunds((prev) =>
+      prev.map((t) =>
+        t.fund.code === fund.code
+          ? { ...t, estimate: data.estimate, holdings: data.holdings, loading: false }
+          : t
+      )
+    );
+
+    if (data.estimate) {
+      toast.success(`已加载 ${data.estimate.name} 的实时数据`);
+    }
+  };
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    try {
+      const updates = await Promise.all(
+        trackedFunds.map(async (t) => {
+          const data = await fetchFundData(t.fund.code);
+          return { code: t.fund.code, ...data };
+        })
+      );
+
+      setTrackedFunds((prev) =>
+        prev.map((t) => {
+          const update = updates.find((u) => u.code === t.fund.code);
+          if (!update) return t;
+          return {
+            ...t,
+            estimate: update.estimate,
+            holdings: update.holdings.length > 0 ? update.holdings : t.holdings,
+          };
+        })
+      );
+      toast.success('数据已刷新');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleRemoveFund = (code: string) => {
@@ -54,10 +142,23 @@ const Index = () => {
             <div className="p-2 rounded-lg bg-primary">
               <BarChart3 className="h-5 w-5 text-primary-foreground" />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-base font-bold text-foreground tracking-tight">FundVision</h1>
-              <p className="text-xs text-muted-foreground">基金净值实时估算</p>
+              <p className="text-xs text-muted-foreground">基金净值实时估算 · 数据来源: 天天基金</p>
             </div>
+            {trackedFunds.length > 0 && (
+              <button
+                onClick={handleRefreshAll}
+                disabled={refreshing}
+                className="p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </button>
+            )}
           </div>
           <SearchBar
             onSelectFund={handleSelectFund}
@@ -71,9 +172,19 @@ const Index = () => {
         {selectedFundCode && selectedTracked ? (
           <HoldingsEditor
             fund={selectedTracked.fund}
+            estimate={selectedTracked.estimate}
             holdings={selectedTracked.holdings}
             onUpdateHoldings={(h) => handleUpdateHoldings(selectedFundCode, h)}
             onBack={() => setSelectedFundCode(null)}
+            onRefresh={() => fetchFundData(selectedFundCode).then((data) => {
+              setTrackedFunds((prev) =>
+                prev.map((t) =>
+                  t.fund.code === selectedFundCode
+                    ? { ...t, estimate: data.estimate, holdings: data.holdings.length > 0 ? data.holdings : t.holdings }
+                    : t
+                )
+              );
+            })}
           />
         ) : (
           <div className="space-y-4">
@@ -99,7 +210,9 @@ const Index = () => {
                   <FundCard
                     key={tracked.fund.code}
                     fund={tracked.fund}
+                    estimate={tracked.estimate}
                     holdings={tracked.holdings}
+                    loading={tracked.loading}
                     onRemove={() => handleRemoveFund(tracked.fund.code)}
                     onClick={() => setSelectedFundCode(tracked.fund.code)}
                   />
