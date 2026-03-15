@@ -26,24 +26,21 @@ export interface StockQuote {
 
 async function callFundApi(params: Record<string, string>) {
   const searchParams = new URLSearchParams(params);
-  const { data, error } = await supabase.functions.invoke('fund-api', {
-    body: null,
-    headers: { 'Content-Type': 'application/json' },
-    method: 'GET',
-  });
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-  // supabase.functions.invoke doesn't support query params well, use fetch directly
-  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-  const url = `https://${projectId}.supabase.co/functions/v1/fund-api?${searchParams.toString()}`;
+  const url = `${supabaseUrl}/functions/v1/fund-api?${searchParams.toString()}`;
 
   const res = await fetch(url, {
     headers: {
-      'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      'Authorization': `Bearer ${supabaseKey}`,
+      'apikey': supabaseKey,
     },
   });
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    const text = await res.text();
+    throw new Error(`API error ${res.status}: ${text}`);
   }
 
   return res.json();
