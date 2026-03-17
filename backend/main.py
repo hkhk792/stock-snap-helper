@@ -193,6 +193,62 @@ def quotes(codes: str):
 _indices_cache = {"ts": 0.0, "data": None}
 
 
+def _yahoo_global_indices() -> list:
+    """
+    Best-effort global indices snapshot via Yahoo quote endpoint.
+    This is typically faster/more reliable than pulling full historical series.
+    """
+    targets = [
+        ("%5EGSPC", "标普500"),
+        ("%5EIXIC", "纳斯达克"),
+        ("%5EDJI", "道琼斯"),
+        ("%5EN225", "日经225"),
+        ("%5EHSI", "恒生指数"),
+        ("%5EFCHI", "法国CAC40"),
+        ("%5EGDAXI", "德国DAX"),
+        ("%5EFTSE", "英国富时100"),
+    ]
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    symbols = ",".join([s for s, _ in targets])
+    try:
+        r = requests.get(
+            url,
+            params={"symbols": symbols},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json,text/plain,*/*",
+            },
+            timeout=8,
+        )
+        r.raise_for_status()
+        js = r.json()
+    except Exception:
+        return []
+
+    result = js.get("quoteResponse", {}).get("result", []) or []
+    by_symbol = {str(it.get("symbol", "")).upper(): it for it in result}
+
+    out = []
+    for sym, name in targets:
+        key = sym.replace("%5E", "^").upper()
+        it = by_symbol.get(key)
+        if not it:
+            continue
+        price = it.get("regularMarketPrice")
+        chg = it.get("regularMarketChangePercent")
+        if price is None or chg is None:
+            continue
+        out.append(
+            {
+                "code": key,
+                "name": name,
+                "price": float(price),
+                "changePercent": float(chg),
+            }
+        )
+    return out
+
+
 @app.get("/api/indices")
 def indices():
     """
@@ -202,7 +258,8 @@ def indices():
     Cached for 60 seconds to reduce upstream load.
     """
     now = time.time()
-    if _indices_cache["data"] is not None and now - _indices_cache["ts"] < 60:
+    # Serve cache for 5 minutes; if upstream fails, we also serve stale cache.
+    if _indices_cache["data"] is not None and now - _indices_cache["ts"] < 300:
         return _indices_cache["data"]
 
     out = []
@@ -232,36 +289,54 @@ def indices():
         except Exception:
             pass
 
-        # Best-effort: investing global daily last two
-        try:
-            global_targets = [
-                ("美国", "标普500"),
-                ("美国", "纳斯达克综合指数"),
-                ("美国", "道琼斯工业平均指数"),
-                ("日本", "日经225"),
-                ("中国香港", "恒生指数"),
-            ]
-            for country, index_name in global_targets:
-                try:
-                    df = ak.index_investing_global(
-                        country=country,
-                        index_name=index_name,
-                        period="每日",
-                        start_date="2020-01-01",
-                        end_date=time.strftime("%Y-%m-%d"),
-                    )
-                    if df is None or df.empty:
+        # Global indices: try fast Yahoo snapshot first (usually reliable)
+        out.extend(_yahoo_global_indices())
+
+        # Fallback: investing global daily last two (heavier, may fail)
+        if len(out) < 6:
+            try:
+                global_targets = [
+                    ("美国", "标普500"),
+                    ("美国", "纳斯达克综合指数"),
+                    ("美国", "道琼斯工业平均指数"),
+                    ("日本", "日经225"),
+                    ("中国香港", "恒生指数"),
+                ]
+                end_date = time.strftime("%Y-%m-%d")
+                # narrow date range to reduce load
+                start_date = "2026-01-01"
+                for country, index_name in global_targets:
+                    try:
+                        df = ak.index_investing_global(
+                            country=country,
+                            index_name=index_name,
+                            period="每日",
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                        if df is None or df.empty:
+                            continue
+                        close = df["收盘"].tail(2).tolist()
+                        if len(close) < 2:
+                            continue
+                        last, prev = float(close[-1]), float(close[-2])
+                        chg = (last / prev - 1) * 100 if prev else 0.0
+                        out.append(
+                            {
+                                "code": f"{country}:{index_name}",
+                                "name": index_name,
+                                "price": last,
+                                "changePercent": chg,
+                            }
+                        )
+                    except Exception:
                         continue
-                    close = df["收盘"].tail(2).tolist()
-                    if len(close) < 2:
-                        continue
-                    last, prev = float(close[-1]), float(close[-2])
-                    chg = (last / prev - 1) * 100 if prev else 0.0
-                    out.append({"code": f"{country}:{index_name}", "name": index_name, "price": last, "changePercent": chg})
-                except Exception:
-                    continue
-        except Exception:
-            pass
+            except Exception:
+                pass
+
+    # If upstream failed and out is empty, serve last known data (stale cache).
+    if not out and _indices_cache["data"] is not None:
+        return _indices_cache["data"]
 
     _indices_cache["ts"] = now
     _indices_cache["data"] = out
