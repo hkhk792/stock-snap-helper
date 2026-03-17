@@ -178,29 +178,55 @@ async function handleStockQuotes(codes: string) {
   return jsonResponse(quotes);
 }
 
-const INDICES_URL = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
-
-// Major global indices: 上证, 深证, 创业板, 沪深300, 中证500, 恒生, 恒生科技, 纳斯达克, 标普500, 道琼斯, 日经225, 富时100
-const INDICES_SECIDS = [
-  '1.000001', '0.399001', '0.399006', '1.000300', '1.000905',
-  '100.HSI', '100.HSTECH',
-  '105.NDX', '105.SPX', '105.DJI', '105.N225',
-].join(',');
+// Sina API returns GBK encoding - use a name map to avoid encoding issues
+const INDEX_NAME_MAP: Record<string, string> = {
+  's_sh000001': '上证指数',
+  's_sz399001': '深证成指',
+  's_sz399006': '创业板指',
+  's_sh000300': '沪深300',
+  's_sh000905': '中证500',
+  'int_hangseng': '恒生指数',
+  'int_hstech': '恒生科技',
+  'int_nasdaq': '纳斯达克',
+  'int_sp500': '标普500',
+  'int_dji': '道琼斯',
+  'int_nikkei': '日经225',
+};
 
 async function handleIndices() {
-  const fields = 'f2,f3,f4,f12,f14';
-  const res = await fetch(
-    `${INDICES_URL}?fltt=2&fields=${fields}&secids=${encodeURIComponent(INDICES_SECIDS)}`,
-    { headers: { 'Referer': 'https://quote.eastmoney.com/' } }
-  );
-  const data = await res.json();
-  const indices = (data?.data?.diff || []).map((item: any) => ({
-    code: item.f12,
-    name: item.f14,
-    price: item.f2,
-    changePercent: item.f3,
-  }));
-  return jsonResponse(indices);
+  try {
+    const codes = Object.keys(INDEX_NAME_MAP);
+    const sinaUrl = `https://hq.sinajs.cn/list=${codes.join(',')}`;
+    const res = await fetch(sinaUrl, {
+      headers: { 'Referer': 'https://finance.sina.com.cn/' },
+    });
+    // Sina returns GBK, decode via ArrayBuffer
+    const buf = await res.arrayBuffer();
+    const text = new TextDecoder('gbk').decode(buf);
+
+    const indices: any[] = [];
+    for (const line of text.split('\n')) {
+      const m = line.match(/hq_str_([^=]+)="([^"]+)"/);
+      if (!m) continue;
+      const code = m[1];
+      const parts = m[2].split(',');
+      if (parts.length < 4) continue;
+      const price = parseFloat(parts[1]);
+      const changePercent = parseFloat(parts[3]);
+      if (!isNaN(price)) {
+        indices.push({
+          code,
+          name: INDEX_NAME_MAP[code] || parts[0],
+          price,
+          changePercent: isNaN(changePercent) ? 0 : changePercent,
+        });
+      }
+    }
+    return jsonResponse(indices);
+  } catch (e) {
+    console.error('Indices fetch error:', e);
+    return jsonResponse([]);
+  }
 }
 
 function jsonResponse(data: any) {
