@@ -58,6 +58,11 @@ async function callFundApi(params: Record<string, string>) {
         .filter(Boolean);
       return backendQuotes(codes);
     }
+    if (action === "indices") {
+      const res = await fetch(`${BACKEND_BASE_URL}/api/indices`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
   }
 
   const searchParams = new URLSearchParams(params);
