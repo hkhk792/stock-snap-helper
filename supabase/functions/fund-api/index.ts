@@ -178,29 +178,48 @@ async function handleStockQuotes(codes: string) {
   return jsonResponse(quotes);
 }
 
-// Use Sina Finance API for indices - more reliable from edge networks
+// Sina API returns GBK encoding - use a name map to avoid encoding issues
+const INDEX_NAME_MAP: Record<string, string> = {
+  's_sh000001': '上证指数',
+  's_sz399001': '深证成指',
+  's_sz399006': '创业板指',
+  's_sh000300': '沪深300',
+  's_sh000905': '中证500',
+  'int_hangseng': '恒生指数',
+  'int_hstech': '恒生科技',
+  'int_nasdaq': '纳斯达克',
+  'int_sp500': '标普500',
+  'int_dji': '道琼斯',
+  'int_nikkei': '日经225',
+};
+
 async function handleIndices() {
   try {
-    const codes = [
-      's_sh000001','s_sz399001','s_sz399006','s_sh000300','s_sh000905',
-      'int_hangseng','int_hstech','int_nasdaq','int_sp500','int_dji','int_nikkei',
-    ];
+    const codes = Object.keys(INDEX_NAME_MAP);
     const sinaUrl = `https://hq.sinajs.cn/list=${codes.join(',')}`;
     const res = await fetch(sinaUrl, {
       headers: { 'Referer': 'https://finance.sina.com.cn/' },
     });
-    const text = await res.text();
+    // Sina returns GBK, decode via ArrayBuffer
+    const buf = await res.arrayBuffer();
+    const text = new TextDecoder('gbk').decode(buf);
 
     const indices: any[] = [];
     for (const line of text.split('\n')) {
       const m = line.match(/hq_str_([^=]+)="([^"]+)"/);
       if (!m) continue;
+      const code = m[1];
       const parts = m[2].split(',');
       if (parts.length < 4) continue;
       const price = parseFloat(parts[1]);
       const changePercent = parseFloat(parts[3]);
       if (!isNaN(price)) {
-        indices.push({ code: m[1], name: parts[0], price, changePercent: isNaN(changePercent) ? 0 : changePercent });
+        indices.push({
+          code,
+          name: INDEX_NAME_MAP[code] || parts[0],
+          price,
+          changePercent: isNaN(changePercent) ? 0 : changePercent,
+        });
       }
     }
     return jsonResponse(indices);
