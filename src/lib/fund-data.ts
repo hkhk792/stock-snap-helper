@@ -22,8 +22,13 @@ export interface Holding {
   id: string;
   name: string;
   code: string;
+  alias?: string;
+  sector?: string;
   weight: number; // percentage 0-100
   change: number; // percentage change like +1.5 or -0.8
+  buyAmount?: number; // CNY
+  buyPrice?: number; // CNY per share
+  shares?: number; // shares count
 }
 
 export function calculateEstimatedNav(

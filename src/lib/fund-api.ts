@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { BACKEND_BASE_URL, backendQuotes } from "@/lib/backend-api";
 
 export interface FundSearchResult {
   code: string;
@@ -25,6 +25,41 @@ export interface StockQuote {
 }
 
 async function callFundApi(params: Record<string, string>) {
+  // Prefer Python backend if configured; fall back to Supabase Edge Function.
+  const backendEnabled = !!import.meta.env.VITE_BACKEND_URL;
+
+  if (backendEnabled) {
+    const action = params.action;
+    if (action === "search") {
+      const url = new URL(`${BACKEND_BASE_URL}/api/fund/search`);
+      url.searchParams.set("keyword", params.keyword || "");
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+    if (action === "estimate") {
+      const url = new URL(`${BACKEND_BASE_URL}/api/fund/estimate`);
+      url.searchParams.set("code", params.code || "");
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+    if (action === "holdings") {
+      const url = new URL(`${BACKEND_BASE_URL}/api/fund/holdings`);
+      url.searchParams.set("code", params.code || "");
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+    if (action === "stock_quotes") {
+      const codes = (params.codes || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return backendQuotes(codes);
+    }
+  }
+
   const searchParams = new URLSearchParams(params);
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -33,8 +68,8 @@ async function callFundApi(params: Record<string, string>) {
 
   const res = await fetch(url, {
     headers: {
-      'Authorization': `Bearer ${supabaseKey}`,
-      'apikey': supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`,
+      apikey: supabaseKey,
     },
   });
 

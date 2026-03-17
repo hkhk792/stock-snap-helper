@@ -1,8 +1,6 @@
-# Welcome to your Lovable project
+# RealValue（基金实时估值）
 
-## Project info
-
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+线上地址：`https://realvalue.lovable.app`
 
 ## How can I edit this code?
 
@@ -59,6 +57,40 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+
+## Local development（本地开发）
+
+### 1) Frontend
+
+```sh
+npm i
+npm run dev
+```
+
+### 2) Backend (AKShare + OCR)
+
+后端用于两件事：
+- **AKShare 行情/搜索/持仓/估值**
+- **截图识别（OCR）**
+
+```sh
+cd backend
+python -m venv .venv
+.venv\\Scripts\\pip install -r requirements.txt
+.venv\\Scripts\\uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
+前端通过环境变量连接后端（参考 `.env.example`）：
+
+```env
+VITE_BACKEND_URL=http://localhost:8001
+```
+
+> 如果不设置 `VITE_BACKEND_URL`，前端会自动回退到 Supabase Edge Function 数据源（不影响基本功能）。
+
+### 3) Supabase（登录 + 持仓保存）
+
+- 迁移文件在 `supabase/migrations/`：包含 `portfolios`、`portfolio_holdings`、`ocr_imports` + RLS。\n+- 前端包含邮箱 Magic Link 登录；登录后可在「我的组合」保存持仓并跨设备查看。
 
 ## How can I deploy this project?
 

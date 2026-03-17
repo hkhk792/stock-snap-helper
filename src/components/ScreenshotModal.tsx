@@ -3,6 +3,8 @@ import { Upload, X, FileImage, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type Holding } from "@/lib/fund-data";
+import { backendOcrHoldings } from "@/lib/backend-api";
+import { toast } from "sonner";
 
 interface ScreenshotModalProps {
   open: boolean;
@@ -13,6 +15,7 @@ interface ScreenshotModalProps {
 const ScreenshotModal: React.FC<ScreenshotModalProps> = ({ open, onClose, onImportHoldings }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [parsedHoldings, setParsedHoldings] = useState<Holding[]>([]);
+  const [parsing, setParsing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
@@ -22,14 +25,25 @@ const ScreenshotModal: React.FC<ScreenshotModalProps> = ({ open, onClose, onImpo
     if (file) {
       const url = URL.createObjectURL(file);
       setImageUrl(url);
-      // Simulate OCR parsing with mock data
-      setParsedHoldings([
-        { id: crypto.randomUUID(), name: "贵州茅台", code: "600519", weight: 8.5, change: 1.2 },
-        { id: crypto.randomUUID(), name: "五粮液", code: "000858", weight: 6.2, change: -0.8 },
-        { id: crypto.randomUUID(), name: "泸州老窖", code: "000568", weight: 5.1, change: 2.1 },
-        { id: crypto.randomUUID(), name: "山西汾酒", code: "600809", weight: 4.8, change: -1.5 },
-        { id: crypto.randomUUID(), name: "洋河股份", code: "002304", weight: 3.9, change: 0.6 },
-      ]);
+      setParsing(true);
+      backendOcrHoldings(file)
+        .then((res) => {
+          const hs: Holding[] = (res.holdings || []).map((h) => ({
+            id: crypto.randomUUID(),
+            name: h.name || "",
+            code: h.code || "",
+            weight: Number(h.weight || 0),
+            change: 0,
+          }));
+          setParsedHoldings(hs);
+          toast.success(`已解析 ${hs.length} 条持仓（可继续校对）`);
+        })
+        .catch((err: any) => {
+          console.error("OCR failed:", err);
+          toast.error("截图识别失败，请检查后端服务是否已启动");
+          setParsedHoldings([]);
+        })
+        .finally(() => setParsing(false));
     }
   };
 
@@ -112,7 +126,7 @@ const ScreenshotModal: React.FC<ScreenshotModalProps> = ({ open, onClose, onImpo
               />
               <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
                 <FileImage className="h-3.5 w-3.5" />
-                上传截图后将自动解析持仓数据（演示数据）
+                {parsing ? "正在识别中…" : "上传截图后将自动解析持仓数据"}
               </p>
             </div>
 
@@ -130,7 +144,9 @@ const ScreenshotModal: React.FC<ScreenshotModalProps> = ({ open, onClose, onImpo
 
               {parsedHoldings.length === 0 ? (
                 <div className="h-64 border border-border rounded-lg flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">请先上传截图</p>
+                  <p className="text-sm text-muted-foreground">
+                    {parsing ? "识别中，请稍候…" : "请先上传截图"}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-72 overflow-auto">
@@ -171,7 +187,7 @@ const ScreenshotModal: React.FC<ScreenshotModalProps> = ({ open, onClose, onImpo
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border">
           <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button onClick={handleImport} disabled={parsedHoldings.length === 0}>
+          <Button onClick={handleImport} disabled={parsedHoldings.length === 0 || parsing}>
             导入持仓数据
           </Button>
         </div>

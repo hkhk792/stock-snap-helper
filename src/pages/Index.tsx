@@ -4,6 +4,9 @@ import SearchBar from "@/components/SearchBar";
 import FundCard from "@/components/FundCard";
 import HoldingsEditor from "@/components/HoldingsEditor";
 import ScreenshotModal from "@/components/ScreenshotModal";
+import { AuthButton } from "@/components/AuthButton";
+import { NavLink } from "@/components/NavLink";
+import { GlobalIndices } from "@/components/GlobalIndices";
 import { type Holding } from "@/lib/fund-data";
 import { type FundSearchResult, type FundEstimate, getFundEstimate, getFundHoldings, getStockQuotes } from "@/lib/fund-api";
 import { toast } from "sonner";
@@ -143,9 +146,16 @@ const Index = () => {
               <BarChart3 className="h-5 w-5 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <h1 className="text-base font-bold text-foreground tracking-tight">FundVision</h1>
-              <p className="text-xs text-muted-foreground">基金净值实时估算 · 数据来源: 天天基金</p>
+              <h1 className="text-base font-bold text-foreground tracking-tight">基金实时估值</h1>
+              <p className="text-xs text-muted-foreground">RealValue · 数据来源: 天天基金</p>
             </div>
+            <NavLink
+              to="/portfolios"
+              className="hidden sm:inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs text-foreground hover:bg-muted transition-colors"
+              activeClassName="bg-muted"
+            >
+              我的组合
+            </NavLink>
             {trackedFunds.length > 0 && (
               <button
                 onClick={handleRefreshAll}
@@ -159,6 +169,7 @@ const Index = () => {
                 )}
               </button>
             )}
+            <AuthButton />
           </div>
           <SearchBar
             onSelectFund={handleSelectFund}
@@ -169,6 +180,9 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-6">
+        <div className="mb-6">
+          <GlobalIndices />
+        </div>
         {selectedFundCode && selectedTracked ? (
           <HoldingsEditor
             fund={selectedTracked.fund}
