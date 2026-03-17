@@ -29,6 +29,8 @@ serve(async (req) => {
       return await handleHoldings(url.searchParams.get('code') || '');
     } else if (action === 'stock_quotes') {
       return await handleStockQuotes(url.searchParams.get('codes') || '');
+    } else if (action === 'indices') {
+      return await handleIndices();
     } else {
       return new Response(JSON.stringify({ error: 'Invalid action' }), {
         status: 400,
