@@ -178,6 +178,31 @@ async function handleStockQuotes(codes: string) {
   return jsonResponse(quotes);
 }
 
+const INDICES_URL = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
+
+// Major global indices: 上证, 深证, 创业板, 沪深300, 中证500, 恒生, 恒生科技, 纳斯达克, 标普500, 道琼斯, 日经225, 富时100
+const INDICES_SECIDS = [
+  '1.000001', '0.399001', '0.399006', '1.000300', '1.000905',
+  '100.HSI', '100.HSTECH',
+  '105.NDX', '105.SPX', '105.DJI', '105.N225',
+].join(',');
+
+async function handleIndices() {
+  const fields = 'f2,f3,f4,f12,f14';
+  const res = await fetch(
+    `${INDICES_URL}?fltt=2&fields=${fields}&secids=${encodeURIComponent(INDICES_SECIDS)}`,
+    { headers: { 'Referer': 'https://quote.eastmoney.com/' } }
+  );
+  const data = await res.json();
+  const indices = (data?.data?.diff || []).map((item: any) => ({
+    code: item.f12,
+    name: item.f14,
+    price: item.f2,
+    changePercent: item.f3,
+  }));
+  return jsonResponse(indices);
+}
+
 function jsonResponse(data: any) {
   return new Response(JSON.stringify(data), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
