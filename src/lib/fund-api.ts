@@ -26,7 +26,7 @@ export interface StockQuote {
 
 async function callFundApi(params: Record<string, string>) {
   // Prefer Python backend if configured; fall back to Supabase Edge Function.
-  const backendEnabled = !!import.meta.env.VITE_BACKEND_URL;
+  const backendEnabled = true;
 
   if (backendEnabled) {
     const action = params.action;

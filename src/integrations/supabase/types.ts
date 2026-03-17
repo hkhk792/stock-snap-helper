@@ -16,28 +16,28 @@ export type Database = {
     Tables: {
       ocr_imports: {
         Row: {
-          id: string
-          user_id: string
-          portfolio_id: string | null
-          filename: string
-          parsed_json: Json
           created_at: string
+          filename: string
+          id: string
+          parsed_json: Json
+          portfolio_id: string | null
+          user_id: string
         }
         Insert: {
-          id?: string
-          user_id: string
-          portfolio_id?: string | null
-          filename?: string
-          parsed_json?: Json
           created_at?: string
+          filename?: string
+          id?: string
+          parsed_json?: Json
+          portfolio_id?: string | null
+          user_id: string
         }
         Update: {
-          id?: string
-          user_id?: string
-          portfolio_id?: string | null
-          filename?: string
-          parsed_json?: Json
           created_at?: string
+          filename?: string
+          id?: string
+          parsed_json?: Json
+          portfolio_id?: string | null
+          user_id?: string
         }
         Relationships: [
           {
@@ -51,46 +51,46 @@ export type Database = {
       }
       portfolio_holdings: {
         Row: {
-          id: string
-          portfolio_id: string
-          name: string
-          code: string
-          weight: number
           alias: string
           buy_amount: number
           buy_price: number
-          shares: number
-          sector: string
+          code: string
           created_at: string
+          id: string
+          name: string
+          portfolio_id: string
+          sector: string
+          shares: number
           updated_at: string
+          weight: number
         }
         Insert: {
-          id?: string
-          portfolio_id: string
-          name?: string
-          code?: string
-          weight?: number
           alias?: string
           buy_amount?: number
           buy_price?: number
-          shares?: number
-          sector?: string
+          code?: string
           created_at?: string
+          id?: string
+          name?: string
+          portfolio_id: string
+          sector?: string
+          shares?: number
           updated_at?: string
+          weight?: number
         }
         Update: {
-          id?: string
-          portfolio_id?: string
-          name?: string
-          code?: string
-          weight?: number
           alias?: string
           buy_amount?: number
           buy_price?: number
-          shares?: number
-          sector?: string
+          code?: string
           created_at?: string
+          id?: string
+          name?: string
+          portfolio_id?: string
+          sector?: string
+          shares?: number
           updated_at?: string
+          weight?: number
         }
         Relationships: [
           {
@@ -104,31 +104,31 @@ export type Database = {
       }
       portfolios: {
         Row: {
-          id: string
-          user_id: string
-          name: string
           base_nav: number
-          owner_name: string
           created_at: string
+          id: string
+          name: string
+          owner_name: string
           updated_at: string
+          user_id: string
         }
         Insert: {
-          id?: string
-          user_id: string
-          name: string
           base_nav?: number
-          owner_name?: string
           created_at?: string
+          id?: string
+          name: string
+          owner_name?: string
           updated_at?: string
+          user_id: string
         }
         Update: {
-          id?: string
-          user_id?: string
-          name?: string
           base_nav?: number
-          owner_name?: string
           created_at?: string
+          id?: string
+          name?: string
+          owner_name?: string
           updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
