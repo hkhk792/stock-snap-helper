@@ -24,48 +24,12 @@ export interface StockQuote {
   changePercent: number;
 }
 
-async function callFundApi(params: Record<string, string>) {
-  // Prefer Python backend if configured; fall back to Supabase Edge Function.
-  const backendEnabled = true;
-
-  if (backendEnabled) {
-    const action = params.action;
-    if (action === "search") {
-      const url = new URL(`${BACKEND_BASE_URL}/api/fund/search`);
-      url.searchParams.set("keyword", params.keyword || "");
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    }
-    if (action === "estimate") {
-      const url = new URL(`${BACKEND_BASE_URL}/api/fund/estimate`);
-      url.searchParams.set("code", params.code || "");
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    }
-    if (action === "holdings") {
-      const url = new URL(`${BACKEND_BASE_URL}/api/fund/holdings`);
-      url.searchParams.set("code", params.code || "");
-      const res = await fetch(url.toString());
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    }
-    if (action === "stock_quotes") {
-      const codes = (params.codes || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return backendQuotes(codes);
-    }
-  }
-
+async function callEdgeFunction(params: Record<string, string>) {
   const searchParams = new URLSearchParams(params);
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   const url = `${supabaseUrl}/functions/v1/fund-api?${searchParams.toString()}`;
-
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${supabaseKey}`,
@@ -77,8 +41,51 @@ async function callFundApi(params: Record<string, string>) {
     const text = await res.text();
     throw new Error(`API error ${res.status}: ${text}`);
   }
-
   return res.json();
+}
+
+async function callBackend(params: Record<string, string>) {
+  const action = params.action;
+  if (action === "search") {
+    const url = new URL(`${BACKEND_BASE_URL}/api/fund/search`);
+    url.searchParams.set("keyword", params.keyword || "");
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+  if (action === "estimate") {
+    const url = new URL(`${BACKEND_BASE_URL}/api/fund/estimate`);
+    url.searchParams.set("code", params.code || "");
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+  if (action === "holdings") {
+    const url = new URL(`${BACKEND_BASE_URL}/api/fund/holdings`);
+    url.searchParams.set("code", params.code || "");
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+  if (action === "stock_quotes") {
+    const codes = (params.codes || "").split(",").map((s) => s.trim()).filter(Boolean);
+    return backendQuotes(codes);
+  }
+  if (action === "indices") {
+    const res = await fetch(`${BACKEND_BASE_URL}/api/indices`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+  throw new Error(`Unknown action: ${action}`);
+}
+
+async function callFundApi(params: Record<string, string>) {
+  // Try Python backend first, fall back to Edge Function
+  try {
+    return await callBackend(params);
+  } catch {
+    return await callEdgeFunction(params);
+  }
 }
 
 export async function searchFundsApi(keyword: string): Promise<FundSearchResult[]> {
@@ -100,4 +107,8 @@ export async function getFundHoldings(code: string): Promise<{
 export async function getStockQuotes(codes: string[]): Promise<StockQuote[]> {
   if (codes.length === 0) return [];
   return callFundApi({ action: 'stock_quotes', codes: codes.join(',') });
+}
+
+export async function getGlobalIndices(): Promise<StockQuote[]> {
+  return callFundApi({ action: 'indices' });
 }

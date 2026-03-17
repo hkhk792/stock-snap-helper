@@ -1,19 +1,19 @@
 import { useEffect, useState } from "react";
 import { Globe, TrendingDown, TrendingUp } from "lucide-react";
-import { backendIndices, type BackendIndex } from "@/lib/backend-api";
+import { getGlobalIndices, type StockQuote } from "@/lib/fund-api";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function GlobalIndices() {
-  const [data, setData] = useState<BackendIndex[] | null>(null);
+  const [data, setData] = useState<StockQuote[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
     try {
       setError(null);
-      const d = await backendIndices();
+      const d = await getGlobalIndices();
       setData(d);
     } catch (e: any) {
-      setError("全球指数暂不可用（请启动后端或配置 VITE_BACKEND_URL）");
+      setError("全球指数暂不可用");
       setData(null);
     }
   };
