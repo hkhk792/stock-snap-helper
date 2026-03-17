@@ -101,3 +101,7 @@ export async function getStockQuotes(codes: string[]): Promise<StockQuote[]> {
   if (codes.length === 0) return [];
   return callFundApi({ action: 'stock_quotes', codes: codes.join(',') });
 }
+
+export async function getGlobalIndices(): Promise<StockQuote[]> {
+  return callFundApi({ action: 'indices' });
+}
