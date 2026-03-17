@@ -1,5 +1,5 @@
 export const BACKEND_BASE_URL =
-  import.meta.env.VITE_BACKEND_URL?.replace(/\/+$/, "") || "http://localhost:8001";
+  import.meta.env.VITE_BACKEND_URL?.replace(/\/+$/, "") || "https://stock-snap-helper.onrender.com";
 
 export interface BackendQuote {
   code: string;
