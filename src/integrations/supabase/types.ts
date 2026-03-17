@@ -14,7 +14,124 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      ocr_imports: {
+        Row: {
+          created_at: string
+          filename: string
+          id: string
+          parsed_json: Json
+          portfolio_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          filename?: string
+          id?: string
+          parsed_json?: Json
+          portfolio_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          filename?: string
+          id?: string
+          parsed_json?: Json
+          portfolio_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocr_imports_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portfolio_holdings: {
+        Row: {
+          alias: string
+          buy_amount: number
+          buy_price: number
+          code: string
+          created_at: string
+          id: string
+          name: string
+          portfolio_id: string
+          sector: string
+          shares: number
+          updated_at: string
+          weight: number
+        }
+        Insert: {
+          alias?: string
+          buy_amount?: number
+          buy_price?: number
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          portfolio_id: string
+          sector?: string
+          shares?: number
+          updated_at?: string
+          weight?: number
+        }
+        Update: {
+          alias?: string
+          buy_amount?: number
+          buy_price?: number
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
+          portfolio_id?: string
+          sector?: string
+          shares?: number
+          updated_at?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_holdings_portfolio_id_fkey"
+            columns: ["portfolio_id"]
+            isOneToOne: false
+            referencedRelation: "portfolios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      portfolios: {
+        Row: {
+          base_nav: number
+          created_at: string
+          id: string
+          name: string
+          owner_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          base_nav?: number
+          created_at?: string
+          id?: string
+          name: string
+          owner_name?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          base_nav?: number
+          created_at?: string
+          id?: string
+          name?: string
+          owner_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
