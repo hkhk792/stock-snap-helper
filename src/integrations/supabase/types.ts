@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      favorites: {
+        Row: {
+          created_at: string
+          fund_code: string
+          fund_name: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fund_code: string
+          fund_name: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fund_code?: string
+          fund_name?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ocr_imports: {
         Row: {
           created_at: string

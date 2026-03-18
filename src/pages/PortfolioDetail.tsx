@@ -227,26 +227,7 @@ export default function PortfolioDetail() {
         />
       </main>
 
-      <ScreenshotModal
-        open={screenshotOpen}
-        onClose={() => setScreenshotOpen(false)}
-        onImportHoldings={async (hs) => {
-          setHoldings(hs);
-          setDirty(true);
-          try {
-            if (user) {
-              await logOcrImport({
-                user_id: user.id,
-                portfolio_id: id,
-                parsed_json: hs.map((h) => ({ name: h.name, code: h.code, weight: h.weight })),
-              });
-            }
-          } catch (e) {
-            // Non-blocking
-            console.warn("logOcrImport failed", e);
-          }
-        }}
-      />
+      {/* Screenshot modal removed */}
     </div>
   );
 }
