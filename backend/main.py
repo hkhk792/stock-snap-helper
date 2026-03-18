@@ -38,6 +38,28 @@ app.add_middleware(
 )
 
 
+# ============== 启动调试 ==============
+@app.on_event("startup")
+async def startup_event():
+    print(f"\n{'='*50}")
+    print(f"后端启动: {datetime.now().isoformat()}")
+    print(f"数据库文件: {DB_FILE}")
+    print(f"文件存在: {os.path.exists(DB_FILE)}")
+    
+    if os.path.exists(DB_FILE):
+        try:
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM funds")
+            count = cur.fetchone()[0]
+            print(f"funds表共有: {count} 条数据")
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"查询数据库失败: {e}")
+    print(f"{'='*50}\n")
+
+
 # ============== 缓存层 ==============
 class MemoryCache:
     def __init__(self):
