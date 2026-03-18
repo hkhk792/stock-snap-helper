@@ -1,9 +1,5 @@
-// 东方财富API接口
-const EASTMONEY_BASE_URL = "https://fundsuggest.eastmoney.com";
-
-// Alpha Vantage API
-const ALPHA_VANTAGE_API_KEY = "3VPGBLRKXQDJVFRG";
-const ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query";
+// 后端 API 地址
+const BACKEND_URL = "https://stock-snap-helper.onrender.com";
 
 // 本地缓存
 const cache: Record<string, { data: any; timestamp: number }> = {};
@@ -14,7 +10,6 @@ export interface FundSearchResult {
   name: string;
   type: string;
   spell?: string;
-  market?: string; // 市场类型：'cn' 或 'global'
 }
 
 export interface FundEstimate {
@@ -47,136 +42,163 @@ function setCachedData(key: string, data: any) {
   cache[key] = { data, timestamp: Date.now() };
 }
 
-// 调用后端API
-async function callFundApi(params: any) {
-  // 构建缓存键
-  const cacheKey = `${params.action}_${params.keyword || params.code || params.codes || ''}`;
-  
-  // 检查缓存
-  const cachedData = getCachedData(cacheKey);
-  if (cachedData) {
-    return cachedData;
-  }
-  
-  // 构建API URL
-  const url = new URL('https://stock-snap-helper.onrender.com/api/fund');
-  Object.entries(params).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
+// 带超时的 fetch
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 10000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   
   try {
-    const res = await fetch(url.toString(), {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      timeout: 3000, // 3秒超时
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
     });
-    
-    if (!res.ok) {
-      // 回退到东方财富API
-      return fallbackApi(params);
-    }
-    
-    const data = await res.json();
-    setCachedData(cacheKey, data);
-    return data;
+    clearTimeout(timeoutId);
+    return res;
   } catch (error) {
-    // 网络错误时回退到东方财富API
-    return fallbackApi(params);
+    clearTimeout(timeoutId);
+    throw error;
   }
 }
 
-// 回退到东方财富API
-async function fallbackApi(params: any) {
-  const { action, keyword, code, codes } = params;
+// 基金搜索 - 使用后端 API（统一搜索国内和海外）
+export async function searchFundsApi(keyword: string): Promise<FundSearchResult[]> {
+  if (!keyword.trim()) return [];
   
-  if (action === 'search') {
-    const url = `${EASTMONEY_BASE_URL}/FundSearch/api/FundSearch?m=1&q=${encodeURIComponent(keyword)}`;
-    const res = await fetch(url, { timeout: 3000 });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const result = (data?.Datas || []).map((item: any) => ({
-      code: item.CODE || item.Code,
-      name: item.NAME || item.Name,
-      type: item.FundBaseInfo?.FTYPE || item.CATEGORYDESC || item.Type || '未知',
-      spell: item.SPELL || item.Spell,
-      market: 'cn', // 标记为国内基金
-    }));
-    setCachedData(`search_${keyword}`, result);
-    return result;
-  }
-  
-  return [];
-}
-
-// 使用 Alpha Vantage API 搜索海外基金
-async function searchGlobalFunds(keyword: string): Promise<FundSearchResult[]> {
-  const cacheKey = `global_search_${keyword}`;
+  const cacheKey = `search_${keyword}`;
   const cachedData = getCachedData(cacheKey);
-  if (cachedData) {
-    return cachedData;
-  }
+  if (cachedData) return cachedData;
   
   try {
-    // Alpha Vantage 基金搜索接口
-    const url = new URL(ALPHA_VANTAGE_BASE_URL);
-    url.searchParams.set('function', 'SYMBOL_SEARCH');
-    url.searchParams.set('keywords', keyword);
-    url.searchParams.set('apikey', ALPHA_VANTAGE_API_KEY);
-    
-    const res = await fetch(url.toString(), { timeout: 3000 });
+    const url = `${BACKEND_URL}/api/fund/search?keyword=${encodeURIComponent(keyword)}`;
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return [];
-    
     const data = await res.json();
-    const result = (data?.bestMatches || []).map((item: any) => ({
-      code: item['1. symbol'],
-      name: item['2. name'],
-      type: item['3. type'] || '海外基金',
-      market: 'global', // 标记为海外基金
+    const result = (data || []).map((item: any) => ({
+      code: item.code,
+      name: item.name,
+      type: item.type || '未知',
+      spell: item.spell,
     }));
-    
     setCachedData(cacheKey, result);
     return result;
   } catch (error) {
-    console.error('Alpha Vantage API error:', error);
+    console.error('Fund search error:', error);
     return [];
   }
 }
 
-// 基金搜索（同时使用国内和海外API）
-export async function searchFundsApi(keyword: string): Promise<FundSearchResult[]> {
-  if (!keyword.trim()) return [];
-  
-  // 并行调用两个API
-  const [cnFunds, globalFunds] = await Promise.all([
-    callFundApi({ action: 'search', keyword }),
-    searchGlobalFunds(keyword)
-  ]);
-  
-  // 合并结果，国内基金在前
-  return [...cnFunds, ...globalFunds];
-}
-
-// 基金估值
+// 基金估值 - 使用后端 API
 export async function getFundEstimate(code: string): Promise<FundEstimate | null> {
-  return callFundApi({ action: 'estimate', code });
+  const cacheKey = `estimate_${code}`;
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) return cachedData;
+  
+  try {
+    const url = `${BACKEND_URL}/api/fund/estimate?code=${code}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    
+    if (!data) return null;
+    
+    const result = {
+      code: data.code,
+      name: data.name,
+      lastNav: data.lastNav,
+      lastNavDate: data.lastNavDate,
+      estimatedNav: data.estimatedNav,
+      estimatedChange: data.estimatedChange,
+      estimatedTime: data.estimatedTime,
+    };
+    
+    setCachedData(cacheKey, result);
+    return result;
+  } catch (error) {
+    console.error('Estimate API error:', error);
+    return null;
+  }
 }
 
-// 基金持仓
+// 基金持仓 - 使用后端 API
 export async function getFundHoldings(code: string): Promise<{
   holdings: Array<{ name: string; code?: string; weight: number }>;
   stockCodes: string[];
 }> {
-  return callFundApi({ action: 'holdings', code });
+  const cacheKey = `holdings_${code}`;
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) return cachedData;
+  
+  try {
+    const url = `${BACKEND_URL}/api/fund/holdings?code=${code}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return { holdings: [], stockCodes: [] };
+    const data = await res.json();
+    
+    const result = {
+      holdings: data?.holdings || [],
+      stockCodes: data?.stockCodes || [],
+    };
+    
+    setCachedData(cacheKey, result);
+    return result;
+  } catch (error) {
+    console.error('Holdings API error:', error);
+    return { holdings: [], stockCodes: [] };
+  }
 }
 
-// 股票行情
+// 股票行情 - 使用后端 API
 export async function getStockQuotes(codes: string[]): Promise<StockQuote[]> {
   if (codes.length === 0) return [];
-  return callFundApi({ action: 'stock_quotes', codes: codes.join(',') });
+  
+  const cacheKey = `quotes_${codes.join(',')}`;
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) return cachedData;
+  
+  try {
+    const url = `${BACKEND_URL}/api/quotes?codes=${codes.join(',')}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    
+    const quotes = (data || []).map((item: any) => ({
+      code: item.code,
+      name: item.name,
+      price: item.price,
+      changePercent: item.changePercent,
+    }));
+    
+    setCachedData(cacheKey, quotes);
+    return quotes;
+  } catch (error) {
+    console.error('Stock quotes API error:', error);
+    return [];
+  }
 }
 
-// 全球指数
+// 全球指数 - 使用后端 API
 export async function getGlobalIndices(): Promise<StockQuote[]> {
-  return callFundApi({ action: 'indices' });
+  const cacheKey = 'global_indices';
+  const cachedData = getCachedData(cacheKey);
+  if (cachedData) return cachedData;
+  
+  try {
+    const url = `${BACKEND_URL}/api/indices`;
+    const res = await fetchWithTimeout(url, {}, 15000);
+    if (!res.ok) return [];
+    const data = await res.json();
+    
+    const indices = (data || []).map((item: any) => ({
+      code: item.code,
+      name: item.name,
+      price: item.price,
+      changePercent: item.changePercent,
+    }));
+    
+    setCachedData(cacheKey, indices);
+    return indices;
+  } catch (error) {
+    console.error('Indices API error:', error);
+    return [];
+  }
 }

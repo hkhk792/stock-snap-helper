@@ -11,13 +11,13 @@ import time
 
 try:
     import akshare as ak
-except Exception:  # pragma: no cover
+except Exception:
     ak = None
 
 try:
     from PIL import Image
     import pytesseract
-except Exception:  # pragma: no cover
+except Exception:
     Image = None
     pytesseract = None
 
@@ -67,19 +67,11 @@ def _safe_float(s: str) -> Optional[float]:
 
 
 def parse_holdings_from_text(text: str) -> List[OcrHolding]:
-    """
-    Best-effort parser for common Chinese brokerage/fund holdings screenshots.
-    Looks for 6-digit codes and nearby weight percentages.
-    """
     holdings: List[OcrHolding] = []
     seen = set()
 
-    # Normalize spaces
     lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines() if ln.strip()]
 
-    # Patterns:
-    # - "贵州茅台 600519 8.50%"
-    # - "600519 贵州茅台 8.5"
     code_re = re.compile(r"\b(\d{6})\b")
     weight_re = re.compile(r"(\d{1,2}(?:\.\d{1,2})?)\s*%")
 
@@ -89,11 +81,9 @@ def parse_holdings_from_text(text: str) -> List[OcrHolding]:
             continue
         code = m_code.group(1)
 
-        # Try get weight
         m_w = weight_re.search(ln)
         weight = _safe_float(m_w.group(1)) if m_w else None
         if weight is None:
-            # fallback: last number in line as weight (common tables omit %)
             nums = re.findall(r"(\d{1,2}(?:\.\d{1,2})?)", ln)
             if nums:
                 weight = _safe_float(nums[-1])
@@ -101,7 +91,6 @@ def parse_holdings_from_text(text: str) -> List[OcrHolding]:
         if weight is None:
             continue
 
-        # Name: remove code + weight fragment
         name = ln
         name = re.sub(r"\b" + re.escape(code) + r"\b", " ", name)
         name = re.sub(r"(\d{1,2}(?:\.\d{1,2})?)\s*%?", " ", name)
@@ -115,7 +104,6 @@ def parse_holdings_from_text(text: str) -> List[OcrHolding]:
         seen.add(key)
         holdings.append(OcrHolding(name=name, code=code, weight=float(weight)))
 
-    # Keep top weights first
     holdings.sort(key=lambda h: h.weight, reverse=True)
     return holdings[:200]
 
@@ -134,7 +122,6 @@ async def ocr_holdings(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
-    # OCR: Chinese + English if available
     try:
         text = pytesseract.image_to_string(img, lang="chi_sim+eng")
     except Exception as e:
@@ -158,8 +145,6 @@ def quotes(codes: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AKShare error: {e}")
 
-    # Normalize columns (AKShare columns can vary; handle common names)
-    # Expected: 代码, 名称, 最新价, 涨跌幅
     col_code = next((c for c in df.columns if str(c) in ["代码", "股票代码"]), None)
     col_name = next((c for c in df.columns if str(c) in ["名称", "股票简称"]), None)
     col_price = next((c for c in df.columns if str(c) in ["最新价", "最新"]), None)
@@ -185,7 +170,6 @@ def quotes(codes: str):
             )
         )
 
-    # Preserve order of input codes if possible
     out_map = {q.code: q for q in out}
     return [out_map[c] for c in code_list if c in out_map]
 
@@ -195,8 +179,7 @@ _indices_cache = {"ts": 0.0, "data": None}
 
 def _yahoo_global_indices() -> list:
     """
-    Best-effort global indices snapshot via Yahoo quote endpoint.
-    This is typically faster/more reliable than pulling full historical series.
+    使用 Yahoo Finance API 获取全球指数
     """
     targets = [
         ("%5EGSPC", "标普500"),
@@ -207,6 +190,15 @@ def _yahoo_global_indices() -> list:
         ("%5EFCHI", "法国CAC40"),
         ("%5EGDAXI", "德国DAX"),
         ("%5EFTSE", "英国富时100"),
+        ("%5EAXJO", "澳洲ASX200"),
+        ("%5EKS11", "韩国KOSPI"),
+        ("%5ETWII", "台湾加权"),
+        ("%5ESTI", "新加坡海峡时报"),
+        ("%5EBSESN", "印度Sensex"),
+        ("%5EBVSP", "巴西IBOVESPA"),
+        ("%5EGSPTSE", "加拿大TSX"),
+        ("%5EMXX", "墨西哥IPC"),
+        ("%5ERTS", "俄罗斯RTS"),
     ]
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
     symbols = ",".join([s for s, _ in targets])
@@ -218,7 +210,7 @@ def _yahoo_global_indices() -> list:
                 "User-Agent": "Mozilla/5.0",
                 "Accept": "application/json,text/plain,*/*",
             },
-            timeout=8,
+            timeout=10,
         )
         r.raise_for_status()
         js = r.json()
@@ -252,22 +244,18 @@ def _yahoo_global_indices() -> list:
 @app.get("/api/indices")
 def indices():
     """
-    Global/major indices snapshot.
-    - China indices: via AKShare stock_zh_index_spot_em (fast)
-    - Others: best-effort via investing global daily last 2 points (compute %)
-    Cached for 60 seconds to reduce upstream load.
+    全球指数 - 使用 AKShare (中国) + Yahoo Finance (全球)
     """
     now = time.time()
-    # Serve cache for 5 minutes; if upstream fails, we also serve stale cache.
     if _indices_cache["data"] is not None and now - _indices_cache["ts"] < 300:
         return _indices_cache["data"]
 
     out = []
 
+    # 中国指数 - 使用 AKShare
     if ak is not None:
         try:
             df = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
-            # columns: 代码, 名称, 最新价, 涨跌幅
             cols = list(df.columns)
             col_code = next((c for c in cols if str(c) in ["代码", "指数代码"]), None)
             col_name = next((c for c in cols if str(c) in ["名称", "指数名称"]), None)
@@ -276,7 +264,7 @@ def indices():
             if all([col_code, col_name, col_price, col_chg]):
                 df2 = df[[col_code, col_name, col_price, col_chg]].copy()
                 df2.columns = ["code", "name", "price", "changePercent"]
-                keep = {"000001", "399001", "399006", "000300"}
+                keep = {"000001", "399001", "399006", "000300", "000905"}
                 for _, r in df2[df2["code"].astype(str).isin(keep)].iterrows():
                     out.append(
                         {
@@ -289,52 +277,9 @@ def indices():
         except Exception:
             pass
 
-        # Global indices: try fast Yahoo snapshot first (usually reliable)
-        out.extend(_yahoo_global_indices())
+    # 全球指数 - 使用 Yahoo Finance
+    out.extend(_yahoo_global_indices())
 
-        # Fallback: investing global daily last two (heavier, may fail)
-        if len(out) < 6:
-            try:
-                global_targets = [
-                    ("美国", "标普500"),
-                    ("美国", "纳斯达克综合指数"),
-                    ("美国", "道琼斯工业平均指数"),
-                    ("日本", "日经225"),
-                    ("中国香港", "恒生指数"),
-                ]
-                end_date = time.strftime("%Y-%m-%d")
-                # narrow date range to reduce load
-                start_date = "2026-01-01"
-                for country, index_name in global_targets:
-                    try:
-                        df = ak.index_investing_global(
-                            country=country,
-                            index_name=index_name,
-                            period="每日",
-                            start_date=start_date,
-                            end_date=end_date,
-                        )
-                        if df is None or df.empty:
-                            continue
-                        close = df["收盘"].tail(2).tolist()
-                        if len(close) < 2:
-                            continue
-                        last, prev = float(close[-1]), float(close[-2])
-                        chg = (last / prev - 1) * 100 if prev else 0.0
-                        out.append(
-                            {
-                                "code": f"{country}:{index_name}",
-                                "name": index_name,
-                                "price": last,
-                                "changePercent": chg,
-                            }
-                        )
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-    # If upstream failed and out is empty, serve last known data (stale cache).
     if not out and _indices_cache["data"] is not None:
         return _indices_cache["data"]
 
@@ -343,26 +288,49 @@ def indices():
     return out
 
 
+# 基金数据缓存
+_fund_name_cache = {"ts": 0.0, "data": None}
+_FUND_CACHE_DURATION = 3600  # 1小时
+
+
+def _get_fund_name_df():
+    """获取基金名称数据，带缓存"""
+    now = time.time()
+    if _fund_name_cache["data"] is not None and now - _fund_name_cache["ts"] < _FUND_CACHE_DURATION:
+        return _fund_name_cache["data"]
+    
+    if ak is None:
+        return None
+    
+    try:
+        df = ak.fund_name_em()
+        _fund_name_cache["ts"] = now
+        _fund_name_cache["data"] = df
+        return df
+    except Exception:
+        return None
+
+
 @app.get("/api/fund/search")
 def fund_search(keyword: str):
+    """基金搜索 - 使用 AKShare"""
     if ak is None:
         raise HTTPException(status_code=500, detail="AKShare is not installed.")
     kw = (keyword or "").strip()
     if not kw:
         return []
-    try:
-        df = ak.fund_name_em()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AKShare error: {e}")
+    
+    df = _get_fund_name_df()
+    if df is None:
+        return []
 
-    # Expected columns: 基金代码, 拼音缩写, 基金简称, 基金类型, 拼音全称
     cols = list(df.columns)
     col_code = next((c for c in cols if str(c) in ["基金代码", "代码"]), None)
     col_spell = next((c for c in cols if "拼音缩写" in str(c)), None)
     col_name = next((c for c in cols if "基金简称" in str(c) or "基金名称" in str(c)), None)
     col_type = next((c for c in cols if "基金类型" in str(c)), None)
     if not all([col_code, col_name, col_type]):
-        raise HTTPException(status_code=500, detail=f"Unexpected fund_name_em columns: {cols}")
+        return []
 
     df = df[[col_code, col_name, col_type] + ([col_spell] if col_spell else [])].copy()
     df.columns = ["code", "name", "type"] + (["spell"] if col_spell else [])
@@ -391,99 +359,152 @@ def fund_search(keyword: str):
 @app.get("/api/fund/estimate")
 def fund_estimate(code: str):
     """
-    Real-time estimate endpoint (fundgz) for open-end funds.
-    AKShare does not consistently expose the same 'gsz' interface, so we use the upstream directly.
+    基金估值 - 使用 AKShare
     """
     c = (code or "").strip()
     if not c:
         return None
-    url = f"https://fundgz.1234567.com.cn/js/{c}.js"
+    
+    if ak is None:
+        raise HTTPException(status_code=500, detail="AKShare is not installed.")
+    
     try:
-        res = requests.get(url, headers={"Referer": "https://fund.eastmoney.com/"}, timeout=10)
-        res.raise_for_status()
-        text = res.text
+        # 使用 AKShare 获取基金实时估值
+        df = ak.fund_etf_spot_em()
+        
+        # 查找对应基金
+        col_code = next((col for col in df.columns if "代码" in str(col)), None)
+        col_name = next((col for col in df.columns if "名称" in str(col)), None)
+        col_price = next((col for col in df.columns if "最新价" in str(col) or "最新" in str(col)), None)
+        col_chg = next((col for col in df.columns if "涨跌幅" in str(col)), None)
+        
+        if not all([col_code, col_price]):
+            return None
+        
+        row = df[df[col_code].astype(str) == c]
+        if row.empty:
+            return None
+        
+        row = row.iloc[0]
+        current_price = float(row[col_price]) if row[col_price] is not None else 0.0
+        change_percent = float(row[col_chg]) if col_chg and row[col_chg] is not None else 0.0
+        
+        # 获取基金名称
+        name = str(row[col_name]) if col_name else c
+        
+        return {
+            "code": c,
+            "name": name,
+            "lastNav": current_price,
+            "lastNavDate": time.strftime("%Y-%m-%d"),
+            "estimatedNav": current_price,
+            "estimatedChange": change_percent,
+            "estimatedTime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upstream error: {e}")
-
-    m = re.sub(r"^jsonpgz\(", "", text)
-    m = re.sub(r"\);?\s*$", "", m)
-    try:
-        data = __import__("json").loads(m)
-    except Exception:
-        return None
-
-    def f(x):
+        # 如果 ETF 实时数据获取失败，尝试获取开放式基金数据
         try:
-            return float(x)
+            df = ak.fund_open_fund_daily_em(symbol=c)
+            if df is None or df.empty:
+                return None
+            
+            # 获取最新数据
+            latest = df.iloc[-1]
+            col_nav = next((col for col in df.columns if "净值" in str(col)), None)
+            col_date = next((col for col in df.columns if "日期" in str(col)), None)
+            
+            if col_nav is None:
+                return None
+            
+            nav = float(latest[col_nav])
+            date = str(latest[col_date]) if col_date else time.strftime("%Y-%m-%d")
+            
+            # 计算涨跌幅
+            if len(df) >= 2:
+                prev_nav = float(df.iloc[-2][col_nav])
+                change_percent = ((nav - prev_nav) / prev_nav) * 100 if prev_nav else 0.0
+            else:
+                change_percent = 0.0
+            
+            return {
+                "code": c,
+                "name": c,
+                "lastNav": nav,
+                "lastNavDate": date,
+                "estimatedNav": nav,
+                "estimatedChange": change_percent,
+                "estimatedTime": f"{date} 15:00:00",
+            }
         except Exception:
-            return 0.0
-
-    return {
-        "code": data.get("fundcode", c),
-        "name": data.get("name", ""),
-        "lastNav": f(data.get("dwjz")),
-        "lastNavDate": data.get("jzrq", ""),
-        "estimatedNav": f(data.get("gsz")),
-        "estimatedChange": f(data.get("gszzl")),
-        "estimatedTime": data.get("gztime", ""),
-    }
+            return None
 
 
 @app.get("/api/fund/holdings")
 def fund_holdings(code: str):
     """
-    Best-effort top holdings parser from EastMoney pingzhongdata JS.
-    Returns {holdings:[{name,code?,weight}], stockCodes:[...]} to match existing frontend.
+    基金持仓 - 使用 AKShare
     """
     c = (code or "").strip()
     if not c:
         return {"holdings": [], "stockCodes": []}
-
-    url = f"https://fund.eastmoney.com/pingzhongdata/{c}.js"
-    try:
-        res = requests.get(url, headers={"Referer": "https://fund.eastmoney.com/"}, timeout=10)
-        res.raise_for_status()
-        text = res.text
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upstream error: {e}")
-
-    stock_codes = []
-    m_stock = re.search(r'var stockCodesNew="([^"]+)"', text)
-    if m_stock:
-        stock_codes = [s for s in m_stock.group(1).split(",") if s]
-
+    
+    if ak is None:
+        raise HTTPException(status_code=500, detail="AKShare is not installed.")
+    
     holdings = []
-    # currentStockList is JSON array of objects with GPJC/GPDM/JZBL in many funds
-    m_list = re.search(r"var currentStockList=(\[[\s\S]*?\]);", text)
-    if m_list:
-        try:
-            arr = __import__("json").loads(m_list.group(1))
-            for item in arr:
-                holdings.append(
-                    {
-                        "name": item.get("GPJC") or item.get("gp") or "",
-                        "code": item.get("GPDM") or "",
-                        "weight": float(item.get("JZBL") or 0),
-                    }
-                )
-        except Exception:
-            holdings = []
-
-    # fallback to fund_positions
+    stock_codes = []
+    
+    try:
+        # 尝试获取基金持仓数据
+        df = ak.fund_portfolio_em(code=c, year=time.strftime("%Y"))
+        if df is not None and not df.empty:
+            # 查找股票持仓列
+            col_name = next((col for col in df.columns if "股票" in str(col) or "名称" in str(col)), None)
+            col_code = next((col for col in df.columns if "代码" in str(col)), None)
+            col_weight = next((col for col in df.columns if "比例" in str(col) or "占比" in str(col)), None)
+            
+            if col_name:
+                for _, row in df.head(20).iterrows():
+                    name = str(row[col_name]) if col_name else ""
+                    code_val = str(row[col_code]) if col_code else ""
+                    weight = float(row[col_weight]) if col_weight and row[col_weight] is not None else 0.0
+                    
+                    if name:
+                        holdings.append({
+                            "name": name,
+                            "code": code_val,
+                            "weight": weight,
+                        })
+                        if code_val:
+                            stock_codes.append(code_val)
+    except Exception:
+        pass
+    
+    # 如果上面方法失败，尝试其他方式
     if not holdings:
-        m_pos = re.search(r"var fund_positions=(\[[\s\S]*?\]);", text)
-        if m_pos:
-            try:
-                arr = __import__("json").loads(m_pos.group(1))
-                for pos in arr:
-                    holdings.append(
-                        {
-                            "name": pos[0] or "",
-                            "weight": float(pos[1] or 0),
-                        }
-                    )
-            except Exception:
-                holdings = []
-
+        try:
+            # 尝试获取 ETF 持仓
+            df = ak.fund_etf_portfolio_em(code=c)
+            if df is not None and not df.empty:
+                col_name = next((col for col in df.columns if "股票" in str(col) or "名称" in str(col)), None)
+                col_code = next((col for col in df.columns if "代码" in str(col)), None)
+                col_weight = next((col for col in df.columns if "比例" in str(col) or "占比" in str(col)), None)
+                
+                if col_name:
+                    for _, row in df.head(20).iterrows():
+                        name = str(row[col_name]) if col_name else ""
+                        code_val = str(row[col_code]) if col_code else ""
+                        weight = float(row[col_weight]) if col_weight and row[col_weight] is not None else 0.0
+                        
+                        if name:
+                            holdings.append({
+                                "name": name,
+                                "code": code_val,
+                                "weight": weight,
+                            })
+                            if code_val:
+                                stock_codes.append(code_val)
+        except Exception:
+            pass
+    
     return {"holdings": holdings, "stockCodes": stock_codes}
-

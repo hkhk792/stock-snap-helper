@@ -1,12 +1,11 @@
 import React, { useState, useRef, useCallback } from "react";
 import { Search, Loader2, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { searchFundsApi, type FundSearchResult } from "@/lib/fund-api";
 
 interface SearchBarProps {
   onSelectFund: (fund: FundSearchResult) => void;
-  favorites?: Set<string>; // 收藏的基金代码集合
+  favorites?: Set<string>;
   onToggleFavorite?: (fund: FundSearchResult, isFavorited: boolean) => void;
 }
 
@@ -39,7 +38,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, favorites = new Set
       } finally {
         setLoading(false);
       }
-    }, 150); // 减少防抖时间到150ms
+    }, 150);
   }, []);
 
   const handleSelect = (fund: FundSearchResult) => {
@@ -67,7 +66,6 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, favorites = new Set
             className="border-0 shadow-none focus-visible:ring-0 h-10 text-sm px-0"
           />
         </div>
-        {/* 截图按钮已移除 */}
       </div>
 
       {showResults && results.length > 0 && (
@@ -79,15 +77,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, favorites = new Set
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors text-left"
             >
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">{fund.name}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{fund.code}</span>
-                  {fund.market === 'global' && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                      海外
-                    </span>
-                  )}
-                </div>
+                <span className="text-sm font-medium text-foreground">{fund.name}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{fund.code}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">{fund.type}</span>
