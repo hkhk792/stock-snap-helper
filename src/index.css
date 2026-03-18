@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 14% 96%;
+    --foreground: 0 0% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 15%;
+
+    --primary: 214 100% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 0 0% 15%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 214 100% 96%;
+    --accent-foreground: 214 100% 54%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --gain: 358 91% 55%;
+    --gain-foreground: 0 0% 100%;
+    --gain-bg: 358 91% 97%;
+
+    --loss: 102 68% 46%;
+    --loss-foreground: 0 0% 100%;
+    --loss-bg: 102 68% 96%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 214 100% 54%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', 'Noto Sans SC', sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-gain {
+    color: hsl(var(--gain));
+  }
+  .text-loss {
+    color: hsl(var(--loss));
+  }
+  .bg-gain {
+    background-color: hsl(var(--gain));
+  }
+  .bg-loss {
+    background-color: hsl(var(--loss));
+  }
+  .bg-gain-light {
+    background-color: hsl(var(--gain-bg));
+  }
+  .bg-loss-light {
+    background-color: hsl(var(--loss-bg));
+  }
+
+  @keyframes flash-update {
+    0% { background-color: hsl(var(--primary) / 0.15); }
+    100% { background-color: transparent; }
+  }
+  .animate-flash {
+    animation: flash-update 300ms ease-out;
+  }
+}

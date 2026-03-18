@@ -1,0 +1,34 @@
+name: Fund Crawler
+
+on:
+  schedule:
+    # 每10分钟执行一次
+    - cron: '*/10 * * * *'
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install akshare pandas psycopg2-binary requests
+      
+      - name: Run crawler
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          cd backend
+          python crawler.py
+      
+      - name: Log completion
+        run: echo "Crawler completed at $(date)"
