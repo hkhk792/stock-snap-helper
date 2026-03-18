@@ -5,4 +5,4 @@ requests
 akshare
 pillow
 pytesseract
-
+psycopg2-binary
