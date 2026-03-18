@@ -24,8 +24,20 @@ except ImportError:
 APP_NAME = os.getenv("APP_NAME", "realvalue-backend")
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 
-# 数据库文件
-DB_FILE = os.path.join(os.path.dirname(__file__), "fund_data.db")
+# 数据库文件 - 尝试多个位置
+possible_db_paths = [
+    "fund_data.db",
+    os.path.join(os.path.dirname(__file__), "fund_data.db"),
+]
+
+DB_FILE = None
+for p in possible_db_paths:
+    if os.path.exists(p):
+        DB_FILE = p
+        break
+
+if DB_FILE is None:
+    DB_FILE = "fund_data.db"
 
 app = FastAPI(title=APP_NAME)
 
@@ -43,7 +55,13 @@ app.add_middleware(
 async def startup_event():
     print(f"\n{'='*50}")
     print(f"后端启动: {datetime.now().isoformat()}")
-    print(f"数据库文件: {DB_FILE}")
+    print(f"当前目录: {os.getcwd()}")
+    print(f"可能的数据库路径:")
+    for p in possible_db_paths:
+        exists = os.path.exists(p)
+        print(f"  {p}: {'存在' if exists else '不存在'}")
+    
+    print(f"使用的数据库文件: {DB_FILE}")
     print(f"文件存在: {os.path.exists(DB_FILE)}")
     
     if os.path.exists(DB_FILE):
