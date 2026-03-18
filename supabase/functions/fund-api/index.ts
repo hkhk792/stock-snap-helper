@@ -191,7 +191,19 @@ const INDEX_NAME_MAP: Record<string, string> = {
   'int_sp500': '标普500',
   'int_dji': '道琼斯',
   'int_nikkei': '日经225',
-};
+  'int_dax': '德国DAX',
+  'int_ftse': '英国富时100',
+  'int_cac': '法国CAC40',
+  'int_sensex': '印度Sensex',
+  'int_asx': '澳洲ASX200',
+  'int_ibovespa': '巴西IBOVESPA',
+  'int_tsx': '加拿大TSX',
+  'int_mexico': '墨西哥IPC',
+  'int_russia': '俄罗斯RTS',
+  'int_singapore': '新加坡海峡时报',
+  'int_taiwan': '台湾加权指数',
+  'int_korea': '韩国KOSPI',
+}; 
 
 async function handleIndices() {
   try {
