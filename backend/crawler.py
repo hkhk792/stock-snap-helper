@@ -1,9 +1,9 @@
 """
 离线爬虫脚本 - 每10分钟执行一次
-从 AKShare 获取基金数据并写入 Supabase 数据库
+从 AKShare 获取基金数据并写入 SQLite 数据库
 """
 import os
-import psycopg2
+import sqlite3
 from datetime import datetime
 from typing import List
 
@@ -12,13 +12,39 @@ try:
 except ImportError:
     ak = None
 
-DB_URL = os.getenv("SUPABASE_DB_URL", "")
+DB_FILE = os.path.join(os.path.dirname(__file__), "fund_data.db")
 
 
 def get_connection():
-    if not DB_URL:
-        raise ValueError("SUPABASE_DB_URL 环境变量未设置")
-    return psycopg2.connect(DB_URL)
+    return sqlite3.connect(DB_FILE)
+
+
+def init_db():
+    """初始化数据库表"""
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS funds (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            price REAL,
+            update_time TIMESTAMP
+        )
+    """)
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS indices (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            price REAL,
+            update_time TIMESTAMP
+        )
+    """)
+    
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def crawl_funds() -> List[tuple]:
@@ -37,7 +63,7 @@ def crawl_funds() -> List[tuple]:
             name = str(row.get("基金简称", ""))
             price = float(row.get("单位净值", 0) or 0)
             if code and price > 0:
-                funds.append((code, name, price, datetime.now()))
+                funds.append((code, name, price, datetime.now().isoformat()))
         print(f"获取到 {len(funds)} 只开放式基金")
     except Exception as e:
         print(f"获取开放式基金失败: {e}")
@@ -55,7 +81,7 @@ def crawl_funds() -> List[tuple]:
                 name = str(row[col_name])
                 price = float(row[col_price] or 0)
                 if code and price > 0 and not any(f[0] == code for f in funds):
-                    funds.append((code, name, price, datetime.now()))
+                    funds.append((code, name, price, datetime.now().isoformat()))
         print(f"总共获取到 {len(funds)} 只基金")
     except Exception as e:
         print(f"获取 ETF 基金失败: {e}")
@@ -74,7 +100,7 @@ def crawl_indices() -> List[tuple]:
     # 中国指数
     try:
         print("正在获取中国指数...")
-        df = ak.stock_zh_index_spot_em(symbol="沪深重要指数")
+        df = ak.stock_zh_index_spot_em()
         cols = list(df.columns)
         col_code = next((c for c in cols if str(c) in ["代码", "指数代码"]), None)
         col_name = next((c for c in cols if str(c) in ["名称", "指数名称"]), None)
@@ -82,12 +108,13 @@ def crawl_indices() -> List[tuple]:
 
         if all([col_code, col_name, col_price]):
             keep = {"000001", "399001", "399006", "000300", "000905"}
-            for _, r in df[df[col_code].astype(str).isin(keep)].iterrows():
+            for _, r in df.iterrows():
                 code = str(r[col_code])
-                name = str(r[col_name])
-                price = float(r[col_price] or 0)
-                if price > 0:
-                    indices.append((code, name, price, datetime.now()))
+                if code in keep:
+                    name = str(r[col_name])
+                    price = float(r[col_price] or 0)
+                    if price > 0:
+                        indices.append((code, name, price, datetime.now().isoformat()))
         print(f"获取到 {len(indices)} 个中国指数")
     except Exception as e:
         print(f"获取中国指数失败: {e}")
@@ -118,7 +145,7 @@ def crawl_indices() -> List[tuple]:
                 if code in global_keep:
                     price = float(r[col_price] or 0)
                     if price > 0:
-                        indices.append((code, global_keep[code], price, datetime.now()))
+                        indices.append((code, global_keep[code], price, datetime.now().isoformat()))
 
         print(f"从全球指数获取到 {len(indices)} 个指数（含中国）")
     except Exception as e:
@@ -133,14 +160,18 @@ def save_funds(funds: List[tuple]):
         return 0
     conn = get_connection()
     cur = conn.cursor()
+    
+    # 先清空表
+    print("正在清空 funds 表...")
+    cur.execute("DELETE FROM funds")
+    conn.commit()
+    
     count = 0
     for code, name, price, update_time in funds:
         try:
             cur.execute("""
                 INSERT INTO funds (code, name, price, update_time)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (code)
-                DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, update_time = EXCLUDED.update_time
+                VALUES (?, ?, ?, ?)
             """, (code, name, price, update_time))
             count += 1
         except Exception as e:
@@ -148,7 +179,7 @@ def save_funds(funds: List[tuple]):
     conn.commit()
     cur.close()
     conn.close()
-    print(f"成功保存 {count} 条基金数据")
+    print(f"✅ 成功保存 {count} 条基金数据")
     return count
 
 
@@ -157,14 +188,18 @@ def save_indices(indices: List[tuple]):
         return 0
     conn = get_connection()
     cur = conn.cursor()
+    
+    # 先清空表
+    print("正在清空 indices 表...")
+    cur.execute("DELETE FROM indices")
+    conn.commit()
+    
     count = 0
     for code, name, price, update_time in indices:
         try:
             cur.execute("""
                 INSERT INTO indices (code, name, price, update_time)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (code)
-                DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price, update_time = EXCLUDED.update_time
+                VALUES (?, ?, ?, ?)
             """, (code, name, price, update_time))
             count += 1
         except Exception as e:
@@ -172,7 +207,7 @@ def save_indices(indices: List[tuple]):
     conn.commit()
     cur.close()
     conn.close()
-    print(f"成功保存 {count} 条指数数据")
+    print(f"✅ 成功保存 {count} 条指数数据")
     return count
 
 
@@ -180,6 +215,8 @@ def run():
     print(f"\n{'='*50}")
     print(f"开始爬虫任务: {datetime.now().isoformat()}")
     print(f"{'='*50}\n")
+
+    init_db()
 
     funds = crawl_funds()
     if funds:

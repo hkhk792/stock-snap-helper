@@ -23,14 +23,19 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install akshare pandas psycopg2-binary requests
+          pip install akshare pandas requests
       
       - name: Run crawler
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           cd backend
           python crawler.py
+      
+      - name: Commit and push database
+        run: |
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/fund_data.db
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update fund data" && git push)
       
       - name: Log completion
         run: echo "Crawler completed at $(date)"

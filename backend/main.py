@@ -1,9 +1,10 @@
 """
-纯查询层 API - 从 Supabase 数据库读取数据
+纯查询层 API - 从 SQLite 数据库读取数据
 用户请求只查询数据库，绝不触发爬虫
 """
 import os
 import time
+import sqlite3
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -11,8 +12,6 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 try:
     from PIL import Image
@@ -25,8 +24,8 @@ except ImportError:
 APP_NAME = os.getenv("APP_NAME", "realvalue-backend")
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 
-# 数据库连接字符串
-DB_URL = os.getenv("SUPABASE_DB_URL", "")
+# 数据库文件
+DB_FILE = os.path.join(os.path.dirname(__file__), "fund_data.db")
 
 app = FastAPI(title=APP_NAME)
 
@@ -59,9 +58,9 @@ cache = MemoryCache()
 
 # ============== 数据库连接 ==============
 def get_connection():
-    if not DB_URL:
-        raise HTTPException(status_code=500, detail="数据库连接未配置")
-    return psycopg2.connect(DB_URL)
+    if not os.path.exists(DB_FILE):
+        raise HTTPException(status_code=500, detail="数据库文件不存在")
+    return sqlite3.connect(DB_FILE)
 
 
 # ============== 接口限流 ==============
@@ -134,11 +133,12 @@ def fund_search(keyword: str):
     
     try:
         conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
         cur.execute("""
             SELECT code, name FROM funds 
-            WHERE code ILIKE %s OR name ILIKE %s
+            WHERE code LIKE ? OR name LIKE ?
             LIMIT 20
         """, (f"%{kw}%", f"%{kw}%"))
         
@@ -171,10 +171,11 @@ def get_fund(code: str):
     
     try:
         conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
         cur.execute("""
-            SELECT code, name, price, update_time FROM funds WHERE code = %s
+            SELECT code, name, price, update_time FROM funds WHERE code = ?
         """, (c,))
         
         row = cur.fetchone()
@@ -188,7 +189,7 @@ def get_fund(code: str):
             "code": row["code"],
             "name": row["name"],
             "price": row["price"],
-            "update_time": row["update_time"].isoformat() if row["update_time"] else None
+            "update_time": row["update_time"]
         }
         
         # 缓存结果
@@ -214,10 +215,11 @@ def fund_estimate(code: str):
     
     try:
         conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
         cur.execute("""
-            SELECT code, name, price, update_time FROM funds WHERE code = %s
+            SELECT code, name, price, update_time FROM funds WHERE code = ?
         """, (c,))
         
         row = cur.fetchone()
@@ -227,14 +229,21 @@ def fund_estimate(code: str):
         if not row:
             return None
         
+        update_dt = None
+        if row["update_time"]:
+            try:
+                update_dt = datetime.fromisoformat(row["update_time"])
+            except:
+                pass
+        
         result = {
             "code": row["code"],
             "name": row["name"],
             "lastNav": float(row["price"] or 0),
-            "lastNavDate": row["update_time"].strftime("%Y-%m-%d") if row["update_time"] else "",
+            "lastNavDate": update_dt.strftime("%Y-%m-%d") if update_dt else "",
             "estimatedNav": float(row["price"] or 0),
             "estimatedChange": 0.0,
-            "estimatedTime": row["update_time"].isoformat() if row["update_time"] else "",
+            "estimatedTime": row["update_time"] or "",
         }
         
         # 缓存结果
@@ -268,7 +277,8 @@ def indices():
     
     try:
         conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
         
         cur.execute("SELECT code, name, price FROM indices")
         
