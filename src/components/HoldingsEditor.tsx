@@ -133,6 +133,8 @@ const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, estimate, holding
     onUpdateHoldings(updated);
   };
 
+  // 添加持仓功能已删除
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await onRefresh();
@@ -201,10 +203,7 @@ const HoldingsEditor: React.FC<HoldingsEditorProps> = ({ fund, estimate, holding
               <span>按金额算权重</span>
               <Switch checked={autoWeight} onCheckedChange={setAutoWeight} />
             </div>
-            <Button size="sm" onClick={addHolding} className="h-8 text-xs">
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              添加持仓
-            </Button>
+            {/* 添加持仓按钮已删除 */}
           </div>
         </div>
 

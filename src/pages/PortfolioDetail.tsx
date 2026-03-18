@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Save, RefreshCw, Camera } from "lucide-react";
+import { ArrowLeft, Save, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useSession } from "@/hooks/useSession";
 import { AuthButton } from "@/components/AuthButton";
 import HoldingsEditor from "@/components/HoldingsEditor";
-import ScreenshotModal from "@/components/ScreenshotModal";
 import { PortfolioCharts } from "@/components/PortfolioCharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +23,6 @@ export default function PortfolioDetail() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [screenshotOpen, setScreenshotOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const autoSaveTimer = useRef<number | null>(null);
 
@@ -176,15 +174,6 @@ export default function PortfolioDetail() {
             <Button variant="outline" size="sm" onClick={refreshQuotes} disabled={refreshing} className="h-8 text-xs">
               <RefreshCw className="h-3.5 w-3.5 mr-1" />
               {refreshing ? "刷新中…" : "刷新行情"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setScreenshotOpen(true)}
-              className="h-8 text-xs"
-            >
-              <Camera className="h-3.5 w-3.5 mr-1" />
-              截图导入
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving} className="h-8 text-xs">
               <Save className="h-3.5 w-3.5 mr-1" />

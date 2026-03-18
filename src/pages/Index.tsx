@@ -3,12 +3,13 @@ import { BarChart3, TrendingUp, RefreshCw, Loader2 } from "lucide-react";
 import SearchBar from "@/components/SearchBar";
 import FundCard from "@/components/FundCard";
 import HoldingsEditor from "@/components/HoldingsEditor";
-import ScreenshotModal from "@/components/ScreenshotModal";
+import { useSession } from "@/hooks/useSession";
 import { AuthButton } from "@/components/AuthButton";
 import { NavLink } from "@/components/NavLink";
 import { GlobalIndices } from "@/components/GlobalIndices";
 import { type Holding } from "@/lib/fund-data";
 import { type FundSearchResult, type FundEstimate, getFundEstimate, getFundHoldings, getStockQuotes } from "@/lib/fund-api";
+import { getFavorites, addFavorite, removeFavorite } from "@/lib/favorites-store";
 import { toast } from "sonner";
 
 interface TrackedFund {
@@ -19,10 +20,39 @@ interface TrackedFund {
 }
 
 const Index = () => {
+  const { user } = useSession();
   const [trackedFunds, setTrackedFunds] = useState<TrackedFund[]>([]);
   const [selectedFundCode, setSelectedFundCode] = useState<string | null>(null);
-  const [screenshotOpen, setScreenshotOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  // 初始化加载自选列表
+  useEffect(() => {
+    if (user?.id) {
+      getFavorites(user.id).then((favs) => {
+        const codes = new Set(favs.map((f) => f.fund_code));
+        setFavorites(codes);
+        // 同时加载这些基金的数据
+        favs.forEach((fav) => {
+          if (!trackedFunds.find((t) => t.fund.code === fav.fund_code)) {
+            setTrackedFunds((prev) => [
+              ...prev,
+              {
+                fund: {
+                  code: fav.fund_code,
+                  name: fav.fund_name,
+                  type: '基金',
+                },
+                estimate: null,
+                holdings: [],
+                loading: true,
+              } as any,
+            ]);
+          }
+        });
+      });
+    }
+  }, [user?.id]);
 
   const fetchFundData = useCallback(async (code: string) => {
     try {
@@ -64,6 +94,11 @@ const Index = () => {
   }, []);
 
   const handleSelectFund = async (fund: FundSearchResult) => {
+    // 仅当已收藏时，进入编辑模式
+    if (!favorites.has(fund.code)) {
+      toast.info('请先点击星标收藏基金');
+      return;
+    }
     if (trackedFunds.find((t) => t.fund.code === fund.code)) {
       setSelectedFundCode(fund.code);
       return;
@@ -84,6 +119,48 @@ const Index = () => {
 
     if (data.estimate) {
       toast.success(`已加载 ${data.estimate.name} 的实时数据`);
+    }
+  };
+
+  // 切换基金的收藏状态
+  const handleToggleFavorite = async (fund: FundSearchResult, shouldFavorite: boolean) => {
+    if (!user?.id) {
+      toast.error('请先登录');
+      return;
+    }
+
+    if (shouldFavorite) {
+      // 添加到自选
+      const result = await addFavorite(user.id, fund.code, fund.name);
+      if (result) {
+        setFavorites((prev) => new Set([...prev, fund.code]));
+        toast.success(`已添加 ${fund.name} 到自选`);
+        // 自动添加到trackedFunds并加载数据
+        if (!trackedFunds.find((t) => t.fund.code === fund.code)) {
+          setTrackedFunds((prev) => [...prev, { fund, estimate: null, holdings: [], loading: true }]);
+          const data = await fetchFundData(fund.code);
+          setTrackedFunds((prev) =>
+            prev.map((t) =>
+              t.fund.code === fund.code
+                ? { ...t, estimate: data.estimate, holdings: data.holdings, loading: false }
+                : t
+            )
+          );
+        }
+      }
+    } else {
+      // 从自选移除
+      const result = await removeFavorite(user.id, fund.code);
+      if (result) {
+        setFavorites((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(fund.code);
+          return newSet;
+        });
+        setTrackedFunds((prev) => prev.filter((t) => t.fund.code !== fund.code));
+        if (selectedFundCode === fund.code) setSelectedFundCode(null);
+        toast.success(`已从自选移除 ${fund.name}`);
+      }
     }
   };
 
@@ -147,7 +224,7 @@ const Index = () => {
             </div>
             <div className="flex-1">
               <h1 className="text-base font-bold text-foreground tracking-tight">基金实时估值</h1>
-              <p className="text-xs text-muted-foreground">RealValue · 数据来源: 天天基金</p>
+              <p className="text-xs text-muted-foreground">RealValue</p>
             </div>
             <NavLink
               to="/portfolios"
@@ -173,7 +250,8 @@ const Index = () => {
           </div>
           <SearchBar
             onSelectFund={handleSelectFund}
-            onOpenScreenshot={() => setScreenshotOpen(true)}
+            favorites={favorites}
+            onToggleFavorite={handleToggleFavorite}
           />
         </div>
       </header>
@@ -204,7 +282,7 @@ const Index = () => {
           <div className="space-y-4">
             {trackedFunds.length > 0 && (
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                跟踪基金 ({trackedFunds.length})
+                我的自选 ({trackedFunds.length})
               </h2>
             )}
 
@@ -213,9 +291,9 @@ const Index = () => {
                 <div className="p-4 rounded-full bg-accent mb-4">
                   <TrendingUp className="h-8 w-8 text-primary" />
                 </div>
-                <h2 className="text-lg font-semibold text-foreground mb-2">开始追踪基金</h2>
+                <h2 className="text-lg font-semibold text-foreground mb-2">开始收藏基金</h2>
                 <p className="text-sm text-muted-foreground max-w-sm">
-                  通过上方搜索栏搜索基金，或使用截图识别功能快速导入持仓数据，实时估算基金净值
+                  通过上方搜索栏搜索基金，点击星标收藏到自选，实时估算基金净值
                 </p>
               </div>
             ) : (
@@ -238,11 +316,7 @@ const Index = () => {
       </main>
 
       {/* Screenshot Modal */}
-      <ScreenshotModal
-        open={screenshotOpen}
-        onClose={() => setScreenshotOpen(false)}
-        onImportHoldings={handleImportHoldings}
-      />
+        {/* 截图功能已删除 */}
     </div>
   );
 };

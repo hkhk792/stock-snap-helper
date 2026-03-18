@@ -1,4 +1,5 @@
-import { BACKEND_BASE_URL, backendQuotes } from "@/lib/backend-api";
+// 东方财富API接口
+const EASTMONEY_BASE_URL = "https://fund.eastmoney.com/api";
 
 export interface FundSearchResult {
   code: string;
@@ -24,68 +25,91 @@ export interface StockQuote {
   changePercent: number;
 }
 
-async function callEdgeFunction(params: Record<string, string>) {
-  const searchParams = new URLSearchParams(params);
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  const url = `${supabaseUrl}/functions/v1/fund-api?${searchParams.toString()}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${supabaseKey}`,
-      apikey: supabaseKey,
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
-  }
-  return res.json();
+// 东方财富基金搜索
+export async function searchFundsApi(keyword: string): Promise<FundSearchResult[]> {
+  if (!keyword.trim()) return [];
+  // 东方财富基金搜索接口
+  const url = `https://fundsuggest.eastmoney.com/FundSearch/api/FundSearch?m=1&q=${encodeURIComponent(keyword)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  // 适配返回结构
+  return (data?.Datas || []).map((item: any) => ({
+    code: item.Code,
+    name: item.Name,
+    type: item.Type,
+    spell: item.Spell,
+  }));
 }
 
-async function callBackend(params: Record<string, string>) {
-  const action = params.action;
-  if (action === "search") {
-    const url = new URL(`${BACKEND_BASE_URL}/api/fund/search`);
-    url.searchParams.set("keyword", params.keyword || "");
-    const res = await fetch(url.toString());
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  }
-  if (action === "estimate") {
-    const url = new URL(`${BACKEND_BASE_URL}/api/fund/estimate`);
-    url.searchParams.set("code", params.code || "");
-    const res = await fetch(url.toString());
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  }
-  if (action === "holdings") {
-    const url = new URL(`${BACKEND_BASE_URL}/api/fund/holdings`);
-    url.searchParams.set("code", params.code || "");
-    const res = await fetch(url.toString());
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  }
-  if (action === "stock_quotes") {
-    const codes = (params.codes || "").split(",").map((s) => s.trim()).filter(Boolean);
-    return backendQuotes(codes);
-  }
-  if (action === "indices") {
-    const res = await fetch(`${BACKEND_BASE_URL}/api/indices`);
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  }
-  throw new Error(`Unknown action: ${action}`);
+// 东方财富基金估值
+export async function getFundEstimate(code: string): Promise<FundEstimate | null> {
+  // 东方财富估值接口（示例，实际接口需适配）
+  const url = `https://fund.eastmoney.com/api/FundMangerHome?code=${code}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  // 适配返回结构
+  return {
+    code,
+    name: data?.name || '',
+    lastNav: data?.lastNav || 0,
+    lastNavDate: data?.lastNavDate || '',
+    estimatedNav: data?.estimatedNav || 0,
+    estimatedChange: data?.estimatedChange || 0,
+    estimatedTime: data?.estimatedTime || '',
+  };
 }
 
-async function callFundApi(params: Record<string, string>) {
-  // Try Python backend first, fall back to Edge Function
-  try {
-    return await callBackend(params);
-  } catch {
-    return await callEdgeFunction(params);
-  }
+// 东方财富基金持仓（示例，实际接口需适配）
+export async function getFundHoldings(code: string): Promise<{
+  holdings: Array<{ name: string; code?: string; weight: number }>;
+  stockCodes: string[];
+}> {
+  // 东方财富持仓接口
+  const url = `https://fund.eastmoney.com/api/FundMangerHome?code=${code}`;
+  const res = await fetch(url);
+  if (!res.ok) return { holdings: [], stockCodes: [] };
+  const data = await res.json();
+  // 适配返回结构
+  const holdings = (data?.holdings || []).map((item: any) => ({
+    name: item.Name,
+    code: item.Code,
+    weight: item.Weight,
+  }));
+  const stockCodes = holdings.map((h: any) => h.code).filter(Boolean);
+  return { holdings, stockCodes };
+}
+
+// 东方财富股票行情（示例，实际接口需适配）
+export async function getStockQuotes(codes: string[]): Promise<StockQuote[]> {
+  if (codes.length === 0) return [];
+  // 东方财富股票行情接口
+  const url = `https://quote.eastmoney.com/api/StockQuote?codes=${codes.join(',')}`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data?.quotes || []).map((item: any) => ({
+    code: item.Code,
+    name: item.Name,
+    price: item.Price,
+    changePercent: item.ChangePercent,
+  }));
+}
+
+// 东方财富大盘指数（示例，实际接口需适配）
+export async function getGlobalIndices(): Promise<StockQuote[]> {
+  // 东方财富大盘指数接口
+  const url = `https://quote.eastmoney.com/api/IndexQuote?codes=000001,399001,399006`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data?.indices || []).map((item: any) => ({
+    code: item.Code,
+    name: item.Name,
+    price: item.Price,
+    changePercent: item.ChangePercent,
+  }));
 }
 
 export async function searchFundsApi(keyword: string): Promise<FundSearchResult[]> {

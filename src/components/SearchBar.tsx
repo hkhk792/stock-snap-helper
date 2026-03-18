@@ -1,14 +1,16 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Search, Camera, Loader2 } from "lucide-react";
+import { Search, Loader2, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { searchFundsApi, type FundSearchResult } from "@/lib/fund-api";
 
 interface SearchBarProps {
   onSelectFund: (fund: FundSearchResult) => void;
-  onOpenScreenshot: () => void;
+  favorites?: Set<string>; // 收藏的基金代码集合
+  onToggleFavorite?: (fund: FundSearchResult, isFavorited: boolean) => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot }) => {
+const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, favorites = new Set(), onToggleFavorite }) => {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FundSearchResult[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -65,13 +67,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot })
             className="border-0 shadow-none focus-visible:ring-0 h-10 text-sm px-0"
           />
         </div>
-        <button
-          onClick={onOpenScreenshot}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors shrink-0"
-        >
-          <Camera className="h-4 w-4" />
-          <span className="hidden sm:inline">截图识别</span>
-        </button>
+        {/* 截图按钮已移除 */}
       </div>
 
       {showResults && results.length > 0 && (
@@ -82,11 +78,29 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSelectFund, onOpenScreenshot })
               onClick={() => handleSelect(fund)}
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors text-left"
             >
-              <div>
+              <div className="flex-1">
                 <span className="text-sm font-medium text-foreground">{fund.name}</span>
                 <span className="ml-2 text-xs text-muted-foreground">{fund.code}</span>
               </div>
-              <span className="text-xs text-muted-foreground">{fund.type}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{fund.type}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const isFavorited = favorites.has(fund.code);
+                    onToggleFavorite?.(fund, !isFavorited);
+                  }}
+                  className="p-1 rounded transition-colors hover:bg-muted ml-1"
+                >
+                  <Star
+                    className={`h-4 w-4 ${
+                      favorites.has(fund.code)
+                        ? 'fill-yellow-400 text-yellow-400'
+                        : 'text-muted-foreground'
+                    }`}
+                  />
+                </button>
+              </div>
             </button>
           ))}
         </div>

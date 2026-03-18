@@ -11,38 +11,76 @@ export function AuthButton() {
   const { user, loading } = useSession();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [step, setStep] = useState<'email' | 'code'>('email'); // 'email' or 'code'
   const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   const userLabel = useMemo(() => {
     if (!user) return "";
     return user.email || user.phone || user.id.slice(0, 8);
   }, [user]);
 
-  const handleSendLink = async () => {
+  const handleSendCode = async () => {
     const trimmed = email.trim();
     if (!trimmed) return;
     setSending(true);
     try {
+      // 使用Supabase的OTP功能发送验证码
       const { error } = await supabase.auth.signInWithOtp({
         email: trimmed,
         options: {
           shouldCreateUser: true,
+          emailRedirectTo: undefined, // 不使用Magic Link
         },
       });
       if (error) throw error;
-      toast.success("登录链接已发送到邮箱");
-      setOpen(false);
-      setEmail("");
+      toast.success("验证码已发送到邮箱");
+      setStep('code');
+      setVerificationCode("");
     } catch (e: any) {
-      toast.error(e?.message || "发送登录链接失败");
+      toast.error(e?.message || "发送验证码失败");
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!verificationCode.trim()) {
+      toast.error("请输入验证码");
+      return;
+    }
+    setVerifying(true);
+    try {
+      // 验证OTP
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: verificationCode,
+        type: 'email',
+      });
+      if (error) throw error;
+      toast.success("登录成功");
+      setOpen(false);
+      setEmail("");
+      setVerificationCode("");
+      setStep('email');
+    } catch (e: any) {
+      toast.error(e?.message || "验证码错误或已过期");
+    } finally {
+      setVerifying(false);
     }
   };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     toast.success("已退出登录");
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setEmail("");
+    setVerificationCode("");
+    setStep('email');
   };
 
   if (loading) {
@@ -69,7 +107,7 @@ export function AuthButton() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>
         <Button size="sm" className="h-8 text-xs">
           <LogIn className="h-3.5 w-3.5 mr-1" />
@@ -81,19 +119,50 @@ export function AuthButton() {
           <DialogTitle>登录以保存持仓</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="请输入邮箱"
-            type="email"
-            autoFocus
-          />
-          <Button onClick={handleSendLink} disabled={!email.trim() || sending} className="w-full">
-            {sending ? "发送中…" : "发送登录链接"}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            我们会发送一个一次性登录链接到你的邮箱（Magic Link）。登录后可跨设备保存你的组合持仓。
-          </p>
+          {step === 'email' ? (
+            <>
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="请输入邮箱"
+                type="email"
+                autoFocus
+                disabled={sending}
+              />
+              <Button onClick={handleSendCode} disabled={!email.trim() || sending} className="w-full">
+                {sending ? "发送中…" : "发送验证码"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                我们会发送一个6位验证码到你的邮箱。登录后可跨设备保存你的组合持仓。
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">验证码已发送到 {email}</p>
+              <Input
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                placeholder="请输入6位验证码"
+                maxLength={6}
+                autoFocus
+                disabled={verifying}
+              />
+              <Button onClick={handleVerifyCode} disabled={verificationCode.length !== 6 || verifying} className="w-full">
+                {verifying ? "验证中…" : "验证并登录"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  setStep('email');
+                  setVerificationCode("");
+                }}
+                className="w-full"
+                disabled={verifying}
+              >
+                返回修改邮箱
+              </Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
