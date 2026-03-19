@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { LogIn, LogOut, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/hooks/useSession";
@@ -76,12 +76,15 @@ export function AuthButton() {
     toast.success("已退出登录");
   };
 
-  const handleClose = () => {
-    setOpen(false);
-    setEmail("");
-    setVerificationCode("");
-    setStep('email');
-  };
+
+
+  useEffect(() => {
+    if (!open) {
+      setEmail("");
+      setVerificationCode("");
+      setStep('email');
+    }
+  }, [open]);
 
   if (loading) {
     return (
@@ -107,7 +110,7 @@ export function AuthButton() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" className="h-8 text-xs">
           <LogIn className="h-3.5 w-3.5 mr-1" />
