@@ -10,6 +10,8 @@ export interface FundSearchResult {
   name: string;
   type: string;
   spell?: string;
+  estimatedNav?: number;
+  estimatedChange?: number;
 }
 
 export interface FundEstimate {
@@ -27,6 +29,14 @@ export interface StockQuote {
   name: string;
   price: number;
   changePercent: number;
+}
+
+export interface FavoriteFund {
+  id: number;
+  user_id: string;
+  fund_code: string;
+  fund_name: string;
+  created_at: string;
 }
 
 // 缓存函数
@@ -77,7 +87,7 @@ export async function searchFundsApi(keyword: string): Promise<FundSearchResult[
       code: item.code,
       name: item.name,
       type: item.type || '未知',
-      spell: item.spell,
+      spell: item.spell || item.pinyin,
     }));
     setCachedData(cacheKey, result);
     return result;
@@ -200,5 +210,49 @@ export async function getGlobalIndices(): Promise<StockQuote[]> {
   } catch (error) {
     console.error('Indices API error:', error);
     return [];
+  }
+}
+
+// ============== 用户收藏功能 ==============
+
+// 获取用户收藏
+export async function getUserFavorites(userId: string): Promise<FavoriteFund[]> {
+  try {
+    const url = `${BACKEND_URL}/api/user/favorites?user_id=${encodeURIComponent(userId)}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.favorites || [];
+  } catch (error) {
+    console.error('Get favorites error:', error);
+    return [];
+  }
+}
+
+// 添加收藏
+export async function addFavorite(userId: string, fundCode: string, fundName: string): Promise<boolean> {
+  try {
+    const url = `${BACKEND_URL}/api/user/favorites?user_id=${encodeURIComponent(userId)}&fund_code=${encodeURIComponent(fundCode)}&fund_name=${encodeURIComponent(fundName)}`;
+    const res = await fetchWithTimeout(url, { method: 'POST' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.success === true;
+  } catch (error) {
+    console.error('Add favorite error:', error);
+    return false;
+  }
+}
+
+// 删除收藏
+export async function removeFavorite(userId: string, fundCode: string): Promise<boolean> {
+  try {
+    const url = `${BACKEND_URL}/api/user/favorites?user_id=${encodeURIComponent(userId)}&fund_code=${encodeURIComponent(fundCode)}`;
+    const res = await fetchWithTimeout(url, { method: 'DELETE' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.success === true;
+  } catch (error) {
+    console.error('Remove favorite error:', error);
+    return false;
   }
 }
