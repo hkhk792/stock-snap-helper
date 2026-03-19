@@ -1,7 +1,6 @@
 fastapi
 uvicorn[standard]
 python-multipart
-akshare
+requests
 pillow
 pytesseract
-psycopg2-binary

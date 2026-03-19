@@ -1,10 +1,12 @@
 """
-纯查询层 API - 从 SQLite 数据库读取数据
-用户请求只查询数据库，绝不触发爬虫
+统一 API 接口 - 直接调用天天基金 API
+不需要数据库，用户信息用 Supabase Auth
 """
 import os
 import time
-import sqlite3
+import json
+import re
+import requests
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -24,21 +26,6 @@ except ImportError:
 APP_NAME = os.getenv("APP_NAME", "realvalue-backend")
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 
-# 数据库文件 - 尝试多个位置
-possible_db_paths = [
-    "fund_data.db",
-    os.path.join(os.path.dirname(__file__), "fund_data.db"),
-]
-
-DB_FILE = None
-for p in possible_db_paths:
-    if os.path.exists(p):
-        DB_FILE = p
-        break
-
-if DB_FILE is None:
-    DB_FILE = "fund_data.db"
-
 app = FastAPI(title=APP_NAME)
 
 app.add_middleware(
@@ -54,27 +41,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     print(f"\n{'='*50}")
-    print(f"后端启动: {datetime.now().isoformat()}")
-    print(f"当前目录: {os.getcwd()}")
-    print(f"可能的数据库路径:")
-    for p in possible_db_paths:
-        exists = os.path.exists(p)
-        print(f"  {p}: {'存在' if exists else '不存在'}")
-    
-    print(f"使用的数据库文件: {DB_FILE}")
-    print(f"文件存在: {os.path.exists(DB_FILE)}")
-    
-    if os.path.exists(DB_FILE):
-        try:
-            conn = sqlite3.connect(DB_FILE)
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM funds")
-            count = cur.fetchone()[0]
-            print(f"funds表共有: {count} 条数据")
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print(f"查询数据库失败: {e}")
+    print(f"后端启动：{datetime.now().isoformat()}")
+    print(f"模式：直接调用天天基金 API")
     print(f"{'='*50}\n")
 
 
@@ -89,34 +57,27 @@ class MemoryCache:
             return item["data"]
         return None
     
-    def set(self, key: str, data: Any, ttl: int = 30):
+    def set(self, key: str, data: Any, ttl: int = 60):
         self._cache[key] = {"data": data, "ts": time.time(), "ttl": ttl}
 
 
 cache = MemoryCache()
 
 
-# ============== 数据库连接 ==============
-def get_connection():
-    if not os.path.exists(DB_FILE):
-        raise HTTPException(status_code=500, detail="数据库文件不存在")
-    return sqlite3.connect(DB_FILE)
-
-
 # ============== 接口限流 ==============
 rate_limit_store: Dict[str, List[float]] = {}
 
 
-def check_rate_limit(ip: str, max_requests: int = 30, window: int = 60) -> bool:
+def check_rate_limit(ip: str, max_requests: int = 100, window: int = 60) -> bool:
     now = time.time()
-    requests = rate_limit_store.get(ip, [])
-    requests = [t for t in requests if now - t < window]
+    requests_list = rate_limit_store.get(ip, [])
+    requests_list = [t for t in requests_list if now - t < window]
     
-    if len(requests) >= max_requests:
+    if len(requests_list) >= max_requests:
         return False
     
-    requests.append(now)
-    rate_limit_store[ip] = requests
+    requests_list.append(now)
+    rate_limit_store[ip] = requests_list
     return True
 
 
@@ -152,48 +113,142 @@ class OcrResult(BaseModel):
     holdings: List[OcrHolding]
 
 
+# ============== 天天基金 API 封装 ==============
+class EastMoneyAPI:
+    """天天基金 API 封装"""
+    
+    BASE_URL = "http://fundsuggest.eastmoney.com"
+    FUND_GZ_URL = "http://fundgz.1234567.com.cn"
+    
+    @staticmethod
+    def search_fund(keyword: str, limit: int = 20) -> List[Dict]:
+        """搜索基金"""
+        if not keyword:
+            return []
+        
+        cache_key = f"search_{keyword}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+        
+        try:
+            url = f"{EastMoneyAPI.BASE_URL}/FundSearch/api/FundSearchAPI.ashx"
+            params = {
+                "m": "1",
+                "key": keyword,
+                "pagesize": limit
+            }
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "http://fund.eastmoney.com/"
+            }
+            
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                result = []
+                
+                datas = data.get("Datas", [])
+                for item in datas:
+                    result.append({
+                        "code": item.get("CODE", ""),
+                        "name": item.get("NAME", ""),
+                        "type": item.get("FundBaseInfo", {}).get("FTYPE", "基金"),
+                        "pinyin": item.get("JIANPIN", "")
+                    })
+                
+                cache.set(cache_key, result, ttl=30)
+                return result
+            
+        except Exception as e:
+            print(f"搜索基金失败: {e}")
+        
+        return []
+    
+    @staticmethod
+    def get_fund_info(code: str) -> Optional[Dict]:
+        """获取基金详情和估值"""
+        if not code:
+            return None
+        
+        cache_key = f"fund_{code}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+        
+        try:
+            url = f"{EastMoneyAPI.FUND_GZ_URL}/js/{code}.js"
+            params = {"rt": int(time.time() * 1000)}
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "http://fund.eastmoney.com/"
+            }
+            
+            resp = requests.get(url, params=params, headers=headers, timeout=10)
+            
+            if resp.status_code == 200:
+                text = resp.text
+                
+                match = re.search(r'jsonpgz\((.*?)\)', text)
+                if match:
+                    data = json.loads(match.group(1))
+                    
+                    result = {
+                        "code": data.get("fundcode", ""),
+                        "name": data.get("name", ""),
+                        "price": float(data.get("dwjz", 0) or 0),
+                        "estimatedNav": float(data.get("gsz", 0) or 0),
+                        "estimatedChange": float(data.get("gszzl", 0) or 0),
+                        "estimatedTime": data.get("gztime", ""),
+                        "update_time": data.get("jzrq", ""),
+                        "type": data.get("fundtype", "")
+                    }
+                    
+                    cache.set(cache_key, result, ttl=30)
+                    return result
+            
+        except Exception as e:
+            print(f"获取基金信息失败: {e}")
+        
+        return None
+    
+    @staticmethod
+    def get_fund_estimate(code: str) -> Optional[Dict]:
+        """获取基金估值"""
+        info = EastMoneyAPI.get_fund_info(code)
+        if info:
+            return {
+                "code": info["code"],
+                "name": info["name"],
+                "lastNav": info["price"],
+                "lastNavDate": info["update_time"],
+                "estimatedNav": info["estimatedNav"],
+                "estimatedChange": info["estimatedChange"],
+                "estimatedTime": info["estimatedTime"]
+            }
+        return None
+
+
+eastmoney = EastMoneyAPI()
+
+
 # ============== API 端点 ==============
 @app.get("/health")
 def health():
-    return {"ok": True, "name": APP_NAME, "mode": "query-only"}
+    return {"ok": True, "name": APP_NAME, "mode": "eastmoney-api"}
 
 
 @app.get("/api/fund/search")
 def fund_search(keyword: str):
-    """基金搜索 - 从数据库查询"""
+    """基金搜索 - 调用天天基金 API"""
     kw = (keyword or "").strip()
     if not kw:
         return []
     
-    # 检查缓存
-    cache_key = f"search_{kw}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    
-    try:
-        conn = get_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT code, name FROM funds 
-            WHERE code LIKE ? OR name LIKE ?
-            LIMIT 20
-        """, (f"%{kw}%", f"%{kw}%"))
-        
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        result = [{"code": r["code"], "name": r["name"], "type": "基金"} for r in rows]
-        
-        # 缓存结果
-        cache.set(cache_key, result, ttl=30)
-        return result
-    except Exception as e:
-        print(f"Search error: {e}")
-        return []
+    return eastmoney.search_fund(kw)
 
 
 @app.get("/api/fund/{code}")
@@ -203,95 +258,21 @@ def get_fund(code: str):
     if not c:
         return {"error": "not found"}
     
-    # 检查缓存
-    cache_key = f"fund_{c}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    info = eastmoney.get_fund_info(c)
+    if not info:
+        return {"error": "not found"}
     
-    try:
-        conn = get_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT code, name, price, update_time FROM funds WHERE code = ?
-        """, (c,))
-        
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if not row:
-            return {"error": "not found"}
-        
-        result = {
-            "code": row["code"],
-            "name": row["name"],
-            "price": row["price"],
-            "update_time": row["update_time"]
-        }
-        
-        # 缓存结果
-        cache.set(cache_key, result, ttl=30)
-        return result
-    except Exception as e:
-        print(f"Get fund error: {e}")
-        return {"error": str(e)}
+    return info
 
 
 @app.get("/api/fund/estimate")
 def fund_estimate(code: str):
-    """基金估值 - 从数据库查询"""
+    """基金估值 - 调用天天基金 API"""
     c = (code or "").strip()
     if not c:
         return None
     
-    # 检查缓存
-    cache_key = f"estimate_{c}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    
-    try:
-        conn = get_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT code, name, price, update_time FROM funds WHERE code = ?
-        """, (c,))
-        
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if not row:
-            return None
-        
-        update_dt = None
-        if row["update_time"]:
-            try:
-                update_dt = datetime.fromisoformat(row["update_time"])
-            except:
-                pass
-        
-        result = {
-            "code": row["code"],
-            "name": row["name"],
-            "lastNav": float(row["price"] or 0),
-            "lastNavDate": update_dt.strftime("%Y-%m-%d") if update_dt else "",
-            "estimatedNav": float(row["price"] or 0),
-            "estimatedChange": 0.0,
-            "estimatedTime": row["update_time"] or "",
-        }
-        
-        # 缓存结果
-        cache.set(cache_key, result, ttl=30)
-        return result
-    except Exception as e:
-        print(f"Estimate error: {e}")
-        return None
+    return eastmoney.get_fund_estimate(c)
 
 
 @app.get("/api/fund/holdings")
@@ -308,41 +289,13 @@ def quotes(codes: str):
 
 @app.get("/api/indices")
 def indices():
-    """全球指数 - 从数据库查询"""
-    # 检查缓存
-    cache_key = "indices"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-    
-    try:
-        conn = get_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        cur.execute("SELECT code, name, price FROM indices")
-        
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        result = [
-            {"code": r["code"], "name": r["name"], "price": float(r["price"] or 0), "changePercent": 0.0}
-            for r in rows
-        ]
-        
-        # 缓存结果
-        cache.set(cache_key, result, ttl=60)
-        return result
-    except Exception as e:
-        print(f"Indices error: {e}")
-        return []
+    """全球指数 - 暂时返回空数据"""
+    return []
 
 
 @app.post("/api/ocr/holdings", response_model=OcrResult)
 async def ocr_holdings(file: UploadFile = File(...)):
     """OCR 识别持仓"""
-    import re
     import io
     
     if Image is None or pytesseract is None:
