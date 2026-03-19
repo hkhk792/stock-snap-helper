@@ -6,7 +6,7 @@ import HoldingsEditor from "@/components/HoldingsEditor";
 import { useSession } from "@/hooks/useSession";
 import { AuthButton } from "@/components/AuthButton";
 import { NavLink } from "@/components/NavLink";
-import { GlobalIndices } from "@/components/GlobalIndices";
+
 import { type Holding } from "@/lib/fund-data";
 import { type FundSearchResult, type FundEstimate, getFundEstimate, getFundHoldings, getStockQuotes } from "@/lib/fund-api";
 import { getFavorites, addFavorite, removeFavorite } from "@/lib/favorites-store";
@@ -258,9 +258,7 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <GlobalIndices />
-        </div>
+
         {selectedFundCode && selectedTracked ? (
           <HoldingsEditor
             fund={selectedTracked.fund}

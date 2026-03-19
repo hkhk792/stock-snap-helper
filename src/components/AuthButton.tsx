@@ -1,96 +1,99 @@
+
 import { useMemo, useState, useEffect } from "react";
 import { LogIn, LogOut, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/hooks/useSession";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 export function AuthButton() {
-  const { user, loading } = useSession();
+  const { user, loading: sessionLoading } = useSession();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
   const [email, setEmail] = useState("");
-  const [verificationCode, setVerificationCode] = useState("");
-  const [step, setStep] = useState<'email' | 'code'>('email'); // 'email' or 'code'
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const userLabel = useMemo(() => {
     if (!user) return "";
     return user.email || user.phone || user.id.slice(0, 8);
   }, [user]);
 
-  const handleSendCode = async () => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    setSending(true);
+  // Reset form when dialog is closed or mode changes
+  useEffect(() => {
+    if (!open) {
+      setTimeout(() => {
+        setMode('signIn');
+        setEmail("");
+        setPassword("");
+        setConfirmPassword("");
+        setLoading(false);
+      }, 200);
+    }
+  }, [open]);
+
+  const handleSignUp = async () => {
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters long");
+      return;
+    }
+    setLoading(true);
     try {
-      // 使用Supabase的OTP功能发送验证码
-      const { error } = await supabase.auth.signInWithOtp({
-        email: trimmed,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: undefined, // 不使用Magic Link
-        },
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
       });
       if (error) throw error;
-      toast.success("验证码已发送到邮箱");
-      setStep('code');
-      setVerificationCode("");
+      toast.success("Sign up successful! Please check your email to verify.");
+      setOpen(false);
     } catch (e: any) {
-      toast.error(e?.message || "发送验证码失败");
+      toast.error(e?.message || "Sign up failed");
     } finally {
-      setSending(false);
+      setLoading(false);
     }
   };
 
-  const handleVerifyCode = async () => {
-    if (!verificationCode.trim()) {
-      toast.error("请输入验证码");
-      return;
-    }
-    setVerifying(true);
+  const handleSignIn = async () => {
+    setLoading(true);
     try {
-      // 验证OTP
-      const { error } = await supabase.auth.verifyOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
-        token: verificationCode,
-        type: 'email',
+        password,
       });
       if (error) throw error;
-      toast.success("登录成功");
+      toast.success("Login successful");
       setOpen(false);
-      setEmail("");
-      setVerificationCode("");
-      setStep('email');
     } catch (e: any) {
-      toast.error(e?.message || "验证码错误或已过期");
+      toast.error(e?.message || "Invalid login credentials");
     } finally {
-      setVerifying(false);
+      setLoading(false);
     }
   };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    toast.success("已退出登录");
+    toast.success("Logged out successfully");
   };
 
-
-
-  useEffect(() => {
-    if (!open) {
-      setEmail("");
-      setVerificationCode("");
-      setStep('email');
-    }
-  }, [open]);
-
-  if (loading) {
+  if (sessionLoading) {
     return (
       <Button variant="outline" size="sm" disabled className="h-8 text-xs">
         <User className="h-3.5 w-3.5 mr-1" />
-        登录中…
+        Loading...
       </Button>
     );
   }
@@ -101,10 +104,15 @@ export function AuthButton() {
         <span className="hidden sm:inline text-xs text-muted-foreground max-w-[220px] truncate">
           {userLabel}
         </span>
-        <Button variant="outline" size="sm" onClick={handleSignOut} className="h-8 text-xs">
-          <LogOut className="h-3.5 w-3.5 mr-1" />
-          退出
-        </Button>
+        <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSignOut}
+            className="h-8 text-xs"
+          >
+            <LogOut className="h-3.5 w-3.5 mr-1" />
+            退出
+          </Button>
       </div>
     );
   }
@@ -114,61 +122,58 @@ export function AuthButton() {
       <DialogTrigger asChild>
         <Button size="sm" className="h-8 text-xs">
           <LogIn className="h-3.5 w-3.5 mr-1" />
-          登录
+          Login
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>登录以保存持仓</DialogTitle>
+          <DialogTitle>
+            {mode === 'signIn' ? "登录以保存持仓" : "创建新账户"}
+          </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          {step === 'email' ? (
-            <>
-              <Input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="请输入邮箱"
-                type="email"
-                autoFocus
-                disabled={sending}
-              />
-              <Button onClick={handleSendCode} disabled={!email.trim() || sending} className="w-full">
-                {sending ? "发送中…" : "发送验证码"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                我们会发送一个6位验证码到你的邮箱。登录后可跨设备保存你的组合持仓。
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">验证码已发送到 {email}</p>
-              <Input
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-                placeholder="请输入6位验证码"
-                maxLength={6}
-                autoFocus
-                disabled={verifying}
-              />
-              <Button onClick={handleVerifyCode} disabled={verificationCode.length !== 6 || verifying} className="w-full">
-                {verifying ? "验证中…" : "验证并登录"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  setStep('email');
-                  setVerificationCode("");
-                }}
-                className="w-full"
-                disabled={verifying}
-              >
-                返回修改邮箱
-              </Button>
-            </>
+        <div className="space-y-3 py-4">
+          <Input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="邮箱地址"
+            type="email"
+            autoFocus
+            disabled={loading}
+          />
+          <Input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="密码"
+            type="password"
+            disabled={loading}
+          />
+          {mode === 'signUp' && (
+            <Input
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="确认密码"
+              type="password"
+              disabled={loading}
+            />
           )}
         </div>
+        <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-between sm:space-x-2">
+            <Button
+                variant="link"
+                className="text-xs p-0 h-auto"
+                onClick={() => setMode(mode === 'signIn' ? 'signUp' : 'signIn')}
+                disabled={loading}
+            >
+                {mode === 'signIn' ? "还没有账户？立即注册" : "已有账户？直接登录"}
+            </Button>
+            <Button
+                onClick={mode === 'signIn' ? handleSignIn : handleSignUp}
+                disabled={loading || !email || !password || (mode === 'signUp' && !confirmPassword)}
+            >
+                {loading ? (mode === 'signIn' ? "登录中..." : "注册中...") : (mode === 'signIn' ? "登录" : "创建账户")}}
+            </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
