@@ -1,6 +1,6 @@
 """
-统一 API 接口 - 直接调用天天基金 API
-不需要数据库，用户信息用 Supabase Auth
+统一 API 接口 - 直接调用天天基金 API + iTick API
+用户收藏功能用 Supabase 数据库
 """
 import os
 import time
@@ -22,9 +22,29 @@ except ImportError:
     Image = None
     pytesseract = None
 
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None
+    Client = None
+
 
 APP_NAME = os.getenv("APP_NAME", "realvalue-backend")
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+
+# iTick API Key
+ITICK_API_KEY = "ebfed44021b243f39cf9211a11f9f67f6b84cd12360747359e16618033190759"
+
+# Supabase 配置
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+supabase: Optional[Client] = None
+
+if create_client and SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        print(f"Supabase 初始化失败: {e}")
 
 app = FastAPI(title=APP_NAME)
 
@@ -42,7 +62,8 @@ app.add_middleware(
 async def startup_event():
     print(f"\n{'='*50}")
     print(f"后端启动：{datetime.now().isoformat()}")
-    print(f"模式：直接调用天天基金 API")
+    print(f"模式：天天基金 API + iTick API")
+    print(f"Supabase：{'已连接' if supabase else '未配置'}")
     print(f"{'='*50}\n")
 
 
@@ -111,6 +132,11 @@ class OcrHolding(BaseModel):
 class OcrResult(BaseModel):
     text: str
     holdings: List[OcrHolding]
+
+
+class FavoriteFund(BaseModel):
+    code: str
+    name: str
 
 
 # ============== 天天基金 API 封装 ==============
@@ -232,13 +258,80 @@ class EastMoneyAPI:
         return None
 
 
+# ============== iTick API 封装 ==============
+class ITickAPI:
+    """iTick API 封装 - 获取全球指数数据"""
+    
+    BASE_URL = "https://api.itick.io"
+    
+    INDEX_SYMBOLS = {
+        "000001.SH": "上证指数",
+        "399001.SZ": "深证成指",
+        "399006.SZ": "创业板指",
+        "000300.SH": "沪深300",
+        "HSI.HK": "恒生指数",
+        "DJI.US": "道琼斯",
+        "SPX.US": "标普500",
+        "IXIC.US": "纳斯达克",
+        "N225.JP": "日经225",
+        "FTSE.UK": "富时100",
+        "GDAXI.DE": "德国DAX",
+        "CAC40.FR": "法国CAC40",
+    }
+    
+    @staticmethod
+    def get_indices() -> List[Dict]:
+        """获取全球指数数据"""
+        cache_key = "global_indices"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
+        
+        result = []
+        
+        try:
+            for symbol, name in ITickAPI.INDEX_SYMBOLS.items():
+                try:
+                    url = f"{ITickAPI.BASE_URL}/stock/quote"
+                    params = {"symbol": symbol}
+                    headers = {
+                        "Authorization": f"Bearer {ITICK_API_KEY}",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    resp = requests.get(url, params=params, headers=headers, timeout=5)
+                    
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        quote = data.get("data", {})
+                        
+                        result.append({
+                            "code": symbol,
+                            "name": name,
+                            "price": float(quote.get("close", 0) or 0),
+                            "changePercent": float(quote.get("changeRate", 0) or 0) * 100,
+                            "change": float(quote.get("change", 0) or 0)
+                        })
+                except Exception as e:
+                    print(f"获取指数 {symbol} 失败: {e}")
+                    continue
+            
+            cache.set(cache_key, result, ttl=60)
+            
+        except Exception as e:
+            print(f"获取全球指数失败: {e}")
+        
+        return result
+
+
 eastmoney = EastMoneyAPI()
+itick = ITickAPI()
 
 
 # ============== API 端点 ==============
 @app.get("/health")
 def health():
-    return {"ok": True, "name": APP_NAME, "mode": "eastmoney-api"}
+    return {"ok": True, "name": APP_NAME, "mode": "eastmoney-api + itick-api"}
 
 
 @app.get("/api/fund/search")
@@ -289,10 +382,59 @@ def quotes(codes: str):
 
 @app.get("/api/indices")
 def indices():
-    """全球指数 - 暂时返回空数据"""
-    return []
+    """全球指数 - 调用 iTick API"""
+    return itick.get_indices()
 
 
+# ============== 用户收藏功能 ==============
+@app.get("/api/user/favorites")
+def get_favorites(user_id: str):
+    """获取用户收藏的基金"""
+    if not supabase:
+        return {"error": "数据库未配置"}
+    
+    try:
+        response = supabase.table("user_favorites").select("*").eq("user_id", user_id).execute()
+        return {"favorites": response.data}
+    except Exception as e:
+        print(f"获取收藏失败: {e}")
+        return {"favorites": []}
+
+
+@app.post("/api/user/favorites")
+def add_favorite(user_id: str, fund_code: str, fund_name: str):
+    """添加收藏"""
+    if not supabase:
+        return {"error": "数据库未配置"}
+    
+    try:
+        response = supabase.table("user_favorites").insert({
+            "user_id": user_id,
+            "fund_code": fund_code,
+            "fund_name": fund_name,
+            "created_at": datetime.now().isoformat()
+        }).execute()
+        return {"success": True, "data": response.data}
+    except Exception as e:
+        print(f"添加收藏失败: {e}")
+        return {"error": str(e)}
+
+
+@app.delete("/api/user/favorites")
+def remove_favorite(user_id: str, fund_code: str):
+    """删除收藏"""
+    if not supabase:
+        return {"error": "数据库未配置"}
+    
+    try:
+        response = supabase.table("user_favorites").delete().eq("user_id", user_id).eq("fund_code", fund_code).execute()
+        return {"success": True}
+    except Exception as e:
+        print(f"删除收藏失败: {e}")
+        return {"error": str(e)}
+
+
+# ============== OCR 功能 ==============
 @app.post("/api/ocr/holdings", response_model=OcrResult)
 async def ocr_holdings(file: UploadFile = File(...)):
     """OCR 识别持仓"""
