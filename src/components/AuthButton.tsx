@@ -29,7 +29,6 @@ export function AuthButton() {
     return user.email || user.phone || user.id.slice(0, 8);
   }, [user]);
 
-  // Reset form when dialog is closed or mode changes
   useEffect(() => {
     if (!open) {
       setTimeout(() => {
@@ -44,11 +43,11 @@ export function AuthButton() {
 
   const handleSignUp = async () => {
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error("两次输入的密码不一致");
       return;
     }
     if (password.length < 6) {
-      toast.error("Password must be at least 6 characters long");
+      toast.error("密码长度不能少于6位");
       return;
     }
     setLoading(true);
@@ -58,10 +57,10 @@ export function AuthButton() {
         password,
       });
       if (error) throw error;
-      toast.success("Sign up successful! Please check your email to verify.");
+      toast.success("注册成功！请检查邮箱以完成验证。");
       setOpen(false);
     } catch (e: any) {
-      toast.error(e?.message || "Sign up failed");
+      toast.error(e?.message || "注册失败");
     } finally {
       setLoading(false);
     }
@@ -75,10 +74,10 @@ export function AuthButton() {
         password,
       });
       if (error) throw error;
-      toast.success("Login successful");
+      toast.success("登录成功");
       setOpen(false);
     } catch (e: any) {
-      toast.error(e?.message || "Invalid login credentials");
+      toast.error(e?.message || "登录凭证无效");
     } finally {
       setLoading(false);
     }
@@ -86,14 +85,14 @@ export function AuthButton() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    toast.success("Logged out successfully");
+    toast.success("已退出登录");
   };
 
   if (sessionLoading) {
     return (
       <Button variant="outline" size="sm" disabled className="h-8 text-xs">
         <User className="h-3.5 w-3.5 mr-1" />
-        Loading...
+        加载中...
       </Button>
     );
   }
@@ -122,7 +121,7 @@ export function AuthButton() {
       <DialogTrigger asChild>
         <Button size="sm" className="h-8 text-xs">
           <LogIn className="h-3.5 w-3.5 mr-1" />
-          Login
+          登录
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -170,7 +169,7 @@ export function AuthButton() {
                 onClick={mode === 'signIn' ? handleSignIn : handleSignUp}
                 disabled={loading || !email || !password || (mode === 'signUp' && !confirmPassword)}
             >
-                {loading ? (mode === 'signIn' ? "登录中..." : "注册中...") : (mode === 'signIn' ? "登录" : "创建账户")}}
+                {loading ? (mode === 'signIn' ? "登录中..." : "注册中...") : (mode === 'signIn' ? "登录" : "创建账户")}
             </Button>
         </DialogFooter>
       </DialogContent>
